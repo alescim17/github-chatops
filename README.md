@@ -11,7 +11,7 @@ ChatGPT
   ├─ native GitHub mutation (when healthy)
   └─ GitHub comment: /reporelay { ... }
              ↓
-      github-chatops Issue #1
+      github-chatops Issue #3
              ↓ issue_comment
       RepoRelay GitHub Action
              ↓ short-lived GitHub App token
@@ -26,14 +26,15 @@ The `issue_comment` workflow lives on this repository's default branch. Target r
 - command versioning
 - authenticated GitHub actor allowlist
 - target repository allowlist
-- idempotency receipt keyed by source comment ID
-- exact `expected_head_sha` fence for Ready/Draft/Merge
+- write-ahead idempotency receipt keyed by source comment/request ID plus canonical command hash
+- exact `expected_head_sha` fence for Ready/Draft/Merge; a raced Ready is restored to Draft
 - optional `expected_base_sha` fence for Merge
-- fresh checks, review decision, unresolved-thread and mergeability checks before Merge
+- at least one current check/status evidence item required before Merge
+- fresh green checks, review decision, unresolved-thread and mergeability checks before Merge
 - merge refetched immediately before mutation
 - atomic multi-file commit with `expected_parent_sha` and non-force branch update
-- direct default-branch commits disabled by policy
-- size/file-count limits for comment-carried commits
+- direct default-branch commits and branch creation disabled by policy
+- size/file-count and Git-mode limits for comment-carried commits
 
 ## V1 actions
 

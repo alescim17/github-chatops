@@ -1,9 +1,10 @@
 import { invariant, splitRepository, githubRequest, getRepository } from '../core.mjs';
 import { requireString, ensureBranchWriteAllowed } from './common.mjs';
 
-export async function handleBranchCreate(token, command) {
+export async function handleBranchCreate(token, policy, command) {
   const branch = requireString(command, 'branch', /^[A-Za-z0-9._\/-]+$/);
   const fromSha = requireString(command, 'from_sha', /^[0-9a-f]{40}$/i);
+  await ensureBranchWriteAllowed(token, policy, command.repository, branch);
   const { owner, repo } = splitRepository(command.repository);
   return githubRequest(token, 'POST', `/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: fromSha });
 }
@@ -47,6 +48,7 @@ export async function handleAtomicCommit(token, policy, command) {
     invariant(!paths.has(file.path), 'FILE_DUPLICATE', `Duplicate file path ${file.path}`);
     paths.add(file.path);
     invariant(file.delete === true || typeof file.content === 'string', 'FILE_CONTENT_INVALID', `File ${file.path} requires content or delete=true`);
+    if (file.mode !== undefined) invariant(['100644', '100755'].includes(file.mode), 'FILE_MODE_INVALID', `Unsupported file mode for ${file.path}`);
     if (file.delete !== true) totalBytes += Buffer.byteLength(file.content, 'utf8');
   }
   invariant(totalBytes <= policy.limits.max_atomic_commit_bytes, 'COMMIT_TOO_LARGE', 'Atomic commit exceeds byte limit', { totalBytes });

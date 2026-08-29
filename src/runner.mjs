@@ -13,6 +13,14 @@ import {
   githubRequest,
   splitRepository,
 } from './core.mjs';
+import {
+  loadTargetMap,
+  resolveTargetRepository,
+  privateCommandBody,
+  normalizeDispatchSource,
+  assertPublicActionAllowed,
+  assertPrivateEnvelope,
+} from './relay.mjs';
 import { executeCommand } from './handlers/index.mjs';
 
 const eventPath = process.env.REPORELAY_EVENT_PATH || process.env.GITHUB_EVENT_PATH;
@@ -20,45 +28,6 @@ const targetToken = process.env.REPORELAY_TARGET_TOKEN;
 const controlToken = process.env.REPORELAY_CONTROL_TOKEN || process.env.GITHUB_TOKEN;
 const dispatchCommand = process.env.REPORELAY_DISPATCH_COMMAND;
 const targetMapRaw = process.env.REPORELAY_TARGETS_JSON;
-
-const PUBLIC_ACTIONS = new Set([
-  'pr.ready',
-  'pr.draft',
-  'pr.merge',
-  'workflow.rerun',
-  'workflow.rerun_failed',
-  'workflow.cancel',
-  'workflow.job.rerun',
-]);
-
-function loadTargetMap(raw) {
-  invariant(typeof raw === 'string' && raw.trim().length > 0, 'TARGET_MAP_REQUIRED', 'RepoRelay target map secret is missing');
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new RepoRelayError('TARGET_MAP_INVALID', 'RepoRelay target map secret is invalid JSON');
-  }
-  invariant(parsed && typeof parsed === 'object' && !Array.isArray(parsed), 'TARGET_MAP_INVALID', 'RepoRelay target map must be an object');
-  for (const [alias, repository] of Object.entries(parsed)) {
-    invariant(/^target\/[A-Za-z0-9._-]+$/.test(alias), 'TARGET_ALIAS_INVALID', 'Target aliases must use target/<name>');
-    invariant(typeof repository === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository), 'TARGET_REPOSITORY_INVALID', `Target ${alias} does not map to owner/name`);
-  }
-  return parsed;
-}
-
-function resolveTargetRepository(alias, targetMap) {
-  const repository = targetMap[alias];
-  invariant(typeof repository === 'string', 'TARGET_ALIAS_UNMAPPED', `Target alias ${alias} is not mapped`);
-  return repository;
-}
-
-function privateCommandBody(body) {
-  invariant(typeof body === 'string', 'PRIVATE_COMMAND_BODY_REQUIRED', 'Private source comment has no body');
-  const trimmed = body.trim();
-  invariant(trimmed.startsWith('/reporelay-private'), 'PRIVATE_COMMAND_PREFIX_INVALID', 'Private source comment must start with /reporelay-private');
-  return `/reporelay${trimmed.slice('/reporelay-private'.length)}`;
-}
 
 async function fetchPrivateCommand({ token, repository, sourceCommentId, actor, maxBytes }) {
   const id = Number(sourceCommentId);
@@ -114,10 +83,12 @@ try {
   const policy = await loadPolicy();
   const targetMap = loadTargetMap(targetMapRaw);
 
-  source = commandFromEvent(event, dispatchCommand);
-  if ((event.inputs || dispatchCommand) && Array.isArray(policy.control_issues) && policy.control_issues.length > 0) {
-    source.controlIssue = policy.control_issues[0];
-  }
+  source = normalizeDispatchSource(
+    commandFromEvent(event, dispatchCommand),
+    event,
+    dispatchCommand,
+    policy,
+  );
 
   const outerCommand = parseCommand(source.body, policy.limits.max_command_bytes);
   authorize({
@@ -139,8 +110,7 @@ try {
     });
     privateSourceComment = privateSource.comment;
     command = privateSource.command;
-    invariant(command.request_id === outerCommand.request_id, 'PRIVATE_REQUEST_ID_MISMATCH', 'Private command request_id must match the public relay envelope');
-    invariant(command.repository === outerCommand.repository, 'PRIVATE_TARGET_MISMATCH', 'Private command target alias must match the public relay envelope');
+    assertPrivateEnvelope(outerCommand, command);
     authorize({
       policy,
       actor: source.actor,
@@ -149,7 +119,7 @@ try {
       command,
     });
   } else {
-    invariant(PUBLIC_ACTIONS.has(outerCommand.action), 'PRIVATE_RELAY_REQUIRED', `Action ${outerCommand.action} requires relay.private on the public control plane`);
+    assertPublicActionAllowed(outerCommand.action);
     command = outerCommand;
   }
 

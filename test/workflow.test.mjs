@@ -7,8 +7,11 @@ const policyUrl = new URL('../config/policy.json', import.meta.url);
 
 test('privileged workflow pins executable actions to full commit SHAs', async () => {
   const workflow = await fs.readFile(workflowUrl, 'utf8');
-  const uses = [...workflow.matchAll(/^\s*- uses:\s*([^\s#]+)/gm)].map((match) => match[1]);
-  assert.ok(uses.length >= 2);
+  const uses = workflow
+    .split(/\r?\n/)
+    .map((line) => line.match(/^\s*-\s+uses:\s+([^\s#]+)/)?.[1])
+    .filter(Boolean);
+  assert.ok(uses.length >= 2, `expected at least two pinned actions, got ${uses.length}`);
   for (const ref of uses) {
     const [, sha] = ref.split('@');
     assert.match(sha, /^[0-9a-f]{40}$/i, `un-pinned privileged action: ${ref}`);

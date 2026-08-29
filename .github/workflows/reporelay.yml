@@ -1,0 +1,55 @@
+name: RepoRelay
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Complete metadata-only /reporelay command
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: reporelay-${{ github.event.comment.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: >-
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.user.login == 'alescim17' &&
+       github.event.issue.number == 3 &&
+       startsWith(github.event.comment.body, '/reporelay')) ||
+      (github.event_name == 'workflow_dispatch' && github.actor == 'alescim17')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Create RepoRelay installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.REPORELAY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.REPORELAY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-statuses: read
+          permission-workflows: write
+
+      - name: Execute typed RepoRelay command
+        env:
+          REPORELAY_EVENT_PATH: ${{ github.event_path }}
+          REPORELAY_DISPATCH_COMMAND: ${{ inputs.command }}
+          REPORELAY_TARGET_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPORELAY_CONTROL_TOKEN: ${{ github.token }}
+          REPORELAY_TARGETS_JSON: ${{ secrets.REPORELAY_TARGETS_JSON }}
+        run: node src/runner.mjs

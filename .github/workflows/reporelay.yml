@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: Complete /reporelay command
+        description: Complete metadata-only /reporelay command
         required: true
         type: string
 
@@ -38,9 +38,12 @@ jobs:
           private-key: ${{ secrets.REPORELAY_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           permission-actions: write
+          permission-checks: read
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
+          permission-statuses: read
+          permission-workflows: write
 
       - name: Execute typed RepoRelay command
         env:
@@ -48,4 +51,5 @@ jobs:
           REPORELAY_DISPATCH_COMMAND: ${{ inputs.command }}
           REPORELAY_TARGET_TOKEN: ${{ steps.app-token.outputs.token }}
           REPORELAY_CONTROL_TOKEN: ${{ github.token }}
+          REPORELAY_TARGETS_JSON: ${{ secrets.REPORELAY_TARGETS_JSON }}
         run: node src/runner.mjs

@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { executeCommand } from '../src/handlers/index.mjs';
 
+const repository = 'owner/private-target';
+const pullPath = '/repos/owner/private-target/pulls/108';
+
 const policy = {
   merge_methods: ['merge'],
   allow_direct_default_branch_writes: false,
@@ -10,7 +13,7 @@ const policy = {
 };
 
 test('unsupported actions fail closed before network access', async () => {
-  await assert.rejects(() => executeCommand('token', policy, { action: 'shell.exec', repository: 'alescim17/aether-factory' }), (error) => error.code === 'ACTION_UNSUPPORTED');
+  await assert.rejects(() => executeCommand('token', policy, { action: 'shell.exec', repository }), (error) => error.code === 'ACTION_UNSUPPORTED');
 });
 
 test('pr.ready uses a minimal GraphQL mutation and preserves expected head', async (t) => {
@@ -18,7 +21,7 @@ test('pr.ready uses a minimal GraphQL mutation and preserves expected head', asy
   const originalFetch = global.fetch;
   global.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
-    if (String(url).endsWith('/repos/alescim17/aether-factory/pulls/108')) {
+    if (String(url).endsWith(pullPath)) {
       return new Response(JSON.stringify({ head: { sha: 'a'.repeat(40) }, state: 'open', draft: true }), { status: 200 });
     }
     if (String(url).endsWith('/graphql')) {
@@ -35,7 +38,7 @@ test('pr.ready uses a minimal GraphQL mutation and preserves expected head', asy
   t.after(() => { global.fetch = originalFetch; });
 
   const result = await executeCommand('token', policy, {
-    action: 'pr.ready', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40),
+    action: 'pr.ready', repository, pr: 108, expected_head_sha: 'a'.repeat(40),
   });
   assert.equal(result.draft, false);
   assert.equal(calls.some((call) => call.url.endsWith('/graphql')), true);
@@ -51,7 +54,7 @@ test('pr.merge rejects stale head before any merge mutation', async (t) => {
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'pr.merge', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40), method: 'merge',
+    action: 'pr.merge', repository, pr: 108, expected_head_sha: 'a'.repeat(40), method: 'merge',
   }), (error) => error.code === 'EXPECTED_HEAD_MISMATCH');
   assert.equal(methods.includes('PUT'), false);
 });
@@ -66,7 +69,7 @@ test('git.commit.atomic forbids direct default-branch writes by policy', async (
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'git.commit.atomic', repository: 'alescim17/aether-factory', branch: 'main', expected_parent_sha: 'a'.repeat(40), message: 'x', files: [{ path: 'x.txt', content: 'x' }],
+    action: 'git.commit.atomic', repository, branch: 'main', expected_parent_sha: 'a'.repeat(40), message: 'x', files: [{ path: 'x.txt', content: 'x' }],
   }), (error) => error.code === 'DEFAULT_BRANCH_WRITE_FORBIDDEN');
   assert.equal(callCount, 1);
 });
@@ -75,7 +78,7 @@ test('pr.ready restores Draft if head races during Ready transition', async (t) 
   const originalFetch = global.fetch;
   const mutations = [];
   global.fetch = async (url, options = {}) => {
-    if (String(url).endsWith('/repos/alescim17/aether-factory/pulls/108')) {
+    if (String(url).endsWith(pullPath)) {
       return new Response(JSON.stringify({ head: { sha: 'a'.repeat(40) }, state: 'open', draft: true }), { status: 200 });
     }
     if (String(url).endsWith('/graphql')) {
@@ -96,7 +99,7 @@ test('pr.ready restores Draft if head races during Ready transition', async (t) 
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'pr.ready', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40),
+    action: 'pr.ready', repository, pr: 108, expected_head_sha: 'a'.repeat(40),
   }), (error) => error.code === 'EXPECTED_HEAD_MISMATCH' && error.details.restored_draft === true);
   assert.equal(mutations.some((query) => query.includes('convertPullRequestToDraft')), true);
 });
@@ -111,7 +114,7 @@ test('branch.create cannot create the default branch when direct default writes 
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'branch.create', repository: 'alescim17/aether-factory', branch: 'main', from_sha: 'a'.repeat(40),
+    action: 'branch.create', repository, branch: 'main', from_sha: 'a'.repeat(40),
   }), (error) => error.code === 'DEFAULT_BRANCH_WRITE_FORBIDDEN');
   assert.equal(postSeen, false);
 });
@@ -126,7 +129,7 @@ test('git.commit.atomic rejects unsupported Git tree modes before blob creation'
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'git.commit.atomic', repository: 'alescim17/aether-factory', branch: 'issue-x', expected_parent_sha: 'a'.repeat(40), message: 'x', files: [{ path: 'x.txt', content: 'x', mode: '160000' }],
+    action: 'git.commit.atomic', repository, branch: 'issue-x', expected_parent_sha: 'a'.repeat(40), message: 'x', files: [{ path: 'x.txt', content: 'x', mode: '160000' }],
   }), (error) => error.code === 'FILE_MODE_INVALID');
   assert.equal(calls, 1);
 });
@@ -138,7 +141,7 @@ test('pr.merge requires at least one exact-head check or status evidence item', 
     const value = String(url);
     const method = options.method || 'GET';
     if (method === 'PUT' && value.endsWith('/pulls/108/merge')) mergePutSeen = true;
-    if (value.endsWith('/repos/alescim17/aether-factory/pulls/108')) {
+    if (value.endsWith(pullPath)) {
       return new Response(JSON.stringify({
         head: { sha: 'a'.repeat(40) },
         base: { sha: 'c'.repeat(40) },
@@ -165,7 +168,7 @@ test('pr.merge requires at least one exact-head check or status evidence item', 
   t.after(() => { global.fetch = originalFetch; });
 
   await assert.rejects(() => executeCommand('token', policy, {
-    action: 'pr.merge', repository: 'alescim17/aether-factory', pr: 108,
+    action: 'pr.merge', repository, pr: 108,
     expected_head_sha: 'a'.repeat(40), expected_base_sha: 'c'.repeat(40), method: 'merge',
   }), (error) => error.code === 'CHECK_EVIDENCE_REQUIRED');
   assert.equal(mergePutSeen, false);

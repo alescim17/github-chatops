@@ -1,4 +1,5 @@
 import {
+  RepoRelayError,
   invariant,
   splitRepository,
   githubRequest,
@@ -52,7 +53,24 @@ export async function setDraftState(token, command, ready) {
     }
   `, { id: governance.id });
   const pr = data?.[mutation]?.pullRequest;
-  invariant(pr?.headRefOid === expected, 'EXPECTED_HEAD_MISMATCH', 'Pull request head moved during draft-state transition');
+  if (pr?.headRefOid !== expected) {
+    if (ready && pr?.isDraft === false) {
+      // Ready has no atomic expected-head argument in GitHub GraphQL. Restore the
+      // conservative Draft state if the head raced after our precondition check.
+      await graphql(token, `
+        mutation($id: ID!) {
+          convertPullRequestToDraft(input: { pullRequestId: $id }) {
+            pullRequest { number isDraft headRefOid }
+          }
+        }
+      `, { id: governance.id });
+    }
+    throw new RepoRelayError('EXPECTED_HEAD_MISMATCH', 'Pull request head moved during draft-state transition', {
+      expected,
+      actual: pr?.headRefOid || null,
+      restored_draft: ready && pr?.isDraft === false,
+    });
+  }
   return { number: pr.number, draft: pr.isDraft, head_sha: pr.headRefOid, repository: `${owner}/${repo}` };
 }
 

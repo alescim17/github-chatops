@@ -1,12 +1,12 @@
 # RepoRelay GitHub App setup
 
-Create a private GitHub App named **RepoRelay** under the account that owns the target repositories.
+RepoRelay uses a private GitHub App to execute allowlisted mutations against target repositories with short-lived installation tokens.
 
-The `github-chatops` repository itself is public; the GitHub App remains private and its credentials never belong in git, issues, comments, or workflow logs.
+The control repository may be public. The GitHub App remains private, and its credentials must never be stored in git, issues, comments, or workflow logs.
 
 ## Repository permissions
 
-Grant only the permissions required by the V1 command surface:
+Grant only the permissions required by the enabled command surface:
 
 - Actions: Read and write
 - Checks: Read-only
@@ -17,51 +17,71 @@ Grant only the permissions required by the V1 command surface:
 - Workflows: Read and write
 - Metadata: Read-only (automatic)
 
-Do not grant Administration, Secrets, Environments, Deployments, Members, organization administration, or other unrelated permissions.
+Do not grant Administration, Secrets, Environments, Deployments, Members, organization administration, or unrelated permissions.
 
-Install RepoRelay only on repositories that RepoRelay is allowed to mutate.
+Install RepoRelay only on repositories it is explicitly allowed to mutate.
 
 ## Control repository configuration
 
-In `alescim17/github-chatops` configure:
+Configure these values in the control repository:
 
-- Repository variable `REPORELAY_APP_CLIENT_ID`: the GitHub App Client ID.
-- Actions secret `REPORELAY_APP_PRIVATE_KEY`: the complete PEM private key generated for RepoRelay.
-- Actions secret `REPORELAY_TARGETS_JSON`: private alias mapping, for example:
+- repository variable `REPORELAY_APP_CLIENT_ID`: GitHub App Client ID;
+- Actions secret `REPORELAY_APP_PRIVATE_KEY`: complete PEM private key generated for the App;
+- Actions secret `REPORELAY_TARGETS_JSON`: target-alias mapping.
+
+Example target map:
 
 ```json
 {
-  "target/reporelay": "OWNER/github-chatops",
-  "target/aether": "OWNER/PRIVATE_REPOSITORY_1",
-  "target/streamforge": "OWNER/PRIVATE_REPOSITORY_2",
-  "target/homeassistant": "OWNER/PRIVATE_REPOSITORY_3"
+  "target/control": "OWNER/control-repository",
+  "target/example": "OWNER/private-target-repository"
 }
 ```
 
-Use the real owner/repository names only in this secret. Keep `config/policy.json` limited to target aliases so converting the control plane to public does not disclose private repository full names.
+Real private repository names belong only in this secret. Public commands and `config/policy.json` should use target aliases.
 
-The privileged workflow uses `actions/create-github-app-token` pinned to a reviewed full commit SHA. It mints a short-lived installation token scoped to explicit permissions. The action revokes the token when the job finishes.
+The privileged workflow uses `actions/create-github-app-token` pinned to a reviewed full commit SHA. It mints a short-lived installation token scoped to the requested permissions and revokes it after the job.
 
-## Public command channel
+## Command bus
 
-V1 accepts public triggers only from permanent command-bus Issue #3 of `alescim17/github-chatops`, and only when GitHub reports the comment author as `alescim17`.
+RepoRelay is triggered by comments on the configured command-bus issue.
 
-Keep Issue #3 open and unlocked.
+The workflow must verify at least:
 
-Direct public commands are restricted to metadata-only actions. Never put source code, issue/PR body content, private repository full names, secrets, tokens, or sensitive branch/context information in Issue #3.
+- event type is `issue_comment`;
+- comment author is allowlisted;
+- issue number matches the configured command bus;
+- command starts with `/reporelay`;
+- target alias is allowlisted.
 
-## Private relay for sensitive commands
+Keep the command-bus issue open and unlocked.
+
+## Public and private commands
+
+Direct public commands are restricted to metadata-only actions. Do not put source code, issue/PR body content, private repository full names, secrets, tokens, or other sensitive payloads in the public command bus.
 
 For content-bearing commands:
 
-1. Post `/reporelay-private { ... }` as a comment on an issue or PR in the private target repository.
-2. Capture the resulting GitHub issue-comment ID.
-3. Post a public `relay.private` command to Issue #3 containing only the target alias, matching `request_id`, and `source_comment_id`.
-4. RepoRelay fetches the private source comment using its App token and verifies the private comment author before execution.
-5. Detailed success/failure evidence is written back to the private source issue/PR; the public receipt is intentionally minimal.
+1. post `/reporelay-private { ... }` as a comment on an issue or PR in the private target repository;
+2. capture the GitHub issue-comment ID;
+3. post a public `relay.private` envelope containing only the target alias, matching `request_id`, and `source_comment_id`;
+4. RepoRelay fetches the private source comment with its App token and verifies its author;
+5. detailed success/failure evidence is written back to the private source conversation while the public receipt stays minimal.
 
-No token, password, private key, or sensitive payload is ever placed in the public command bus.
+No token, password, private key, or sensitive payload should appear in the public command bus.
 
 ## Public-repository Actions security
 
-The privileged workflow checks out only the default-branch version of this public repository and is triggered by `issue_comment`; pull-request code never receives the RepoRelay private key. Keep privileged third-party/GitHub-owned actions pinned to reviewed full commit SHAs.
+For a public control repository:
+
+- privileged `issue_comment` jobs must execute the workflow/code from the default branch;
+- pull-request code must never receive the RepoRelay private key;
+- keep the workflow `GITHUB_TOKEN` permissions minimal;
+- pin privileged action dependencies to reviewed full commit SHAs;
+- keep target selection and command authorization server-side and fail closed.
+
+## Post-merge branch cleanup
+
+Use `branch.delete_merged` for routine cleanup instead of deleting branch refs directly.
+
+The action accepts a merged PR number and `expected_head_sha`. RepoRelay derives the head branch from GitHub and deletes it only if the PR is merged, the branch belongs to the same repository, the ref is unchanged, the branch is not the default branch, and no other open PR still uses it.

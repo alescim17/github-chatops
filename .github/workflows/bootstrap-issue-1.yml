@@ -1,0 +1,35 @@
+name: RepoRelay bootstrap issue 1
+
+on:
+  push:
+    branches: [issue-1]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor == 'alescim17'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: issue-1
+          fetch-depth: 0
+
+      - name: Materialize validated RepoRelay sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f bootstrap/remaining.tgz.b64
+          base64 --decode bootstrap/remaining.tgz.b64 | tar -xzf -
+          rm -f bootstrap/remaining.tgz.b64
+          rmdir bootstrap 2>/dev/null || true
+          rm -f .github/workflows/bootstrap-issue-1.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: add RepoRelay runtime and workflows"
+          git push origin HEAD:issue-1

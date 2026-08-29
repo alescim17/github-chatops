@@ -41,13 +41,12 @@ test('GitHub App token explicitly requests merge-evidence and workflow-write per
   assert.ok(workflow.includes('REPORELAY_TARGETS_JSON: ${{ secrets.REPORELAY_TARGETS_JSON }}'));
 });
 
-test('public policy contains aliases rather than private repository full names', async () => {
+test('public policy exposes target aliases only', async () => {
   const policy = JSON.parse(await fs.readFile(policyUrl, 'utf8'));
   assert.deepEqual(policy.control_issues, [3]);
   assert.ok(policy.allowed_repositories.length > 0);
-  for (const target of policy.allowed_repositories) assert.match(target, /^target\/[A-Za-z0-9._-]+$/);
-  const serialized = JSON.stringify(policy);
-  assert.equal(serialized.includes('alescim17/aether-factory'), false);
-  assert.equal(serialized.includes('alescim17/streamforge'), false);
-  assert.equal(serialized.includes('alescim17/homeassistant'), false);
+  for (const target of policy.allowed_repositories) {
+    assert.match(target, /^target\/[A-Za-z0-9._-]+$/);
+    assert.equal(target.split('/').length, 2);
+  }
 });

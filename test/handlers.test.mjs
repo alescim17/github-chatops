@@ -70,3 +70,63 @@ test('git.commit.atomic forbids direct default-branch writes by policy', async (
   }), (error) => error.code === 'DEFAULT_BRANCH_WRITE_FORBIDDEN');
   assert.equal(callCount, 1);
 });
+
+test('pr.ready restores Draft if head races during Ready transition', async (t) => {
+  const originalFetch = global.fetch;
+  const mutations = [];
+  global.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/repos/alescim17/aether-factory/pulls/108')) {
+      return new Response(JSON.stringify({ head: { sha: 'a'.repeat(40) }, state: 'open', draft: true }), { status: 200 });
+    }
+    if (String(url).endsWith('/graphql')) {
+      const body = JSON.parse(options.body);
+      if (body.query.includes('query(')) {
+        return new Response(JSON.stringify({ data: { repository: { pullRequest: { id: 'PR_node', isDraft: true, reviewDecision: null, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] } } } } }), { status: 200 });
+      }
+      mutations.push(body.query);
+      if (body.query.includes('markPullRequestReadyForReview')) {
+        return new Response(JSON.stringify({ data: { markPullRequestReadyForReview: { pullRequest: { number: 108, isDraft: false, headRefOid: 'b'.repeat(40) } } } }), { status: 200 });
+      }
+      if (body.query.includes('convertPullRequestToDraft')) {
+        return new Response(JSON.stringify({ data: { convertPullRequestToDraft: { pullRequest: { number: 108, isDraft: true, headRefOid: 'b'.repeat(40) } } } }), { status: 200 });
+      }
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await assert.rejects(() => executeCommand('token', policy, {
+    action: 'pr.ready', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40),
+  }), (error) => error.code === 'EXPECTED_HEAD_MISMATCH' && error.details.restored_draft === true);
+  assert.equal(mutations.some((query) => query.includes('convertPullRequestToDraft')), true);
+});
+
+test('branch.create cannot create the default branch when direct default writes are disabled', async (t) => {
+  const originalFetch = global.fetch;
+  let postSeen = false;
+  global.fetch = async (url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') postSeen = true;
+    return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200 });
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await assert.rejects(() => executeCommand('token', policy, {
+    action: 'branch.create', repository: 'alescim17/aether-factory', branch: 'main', from_sha: 'a'.repeat(40),
+  }), (error) => error.code === 'DEFAULT_BRANCH_WRITE_FORBIDDEN');
+  assert.equal(postSeen, false);
+});
+
+test('git.commit.atomic rejects unsupported Git tree modes before blob creation', async (t) => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200 });
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await assert.rejects(() => executeCommand('token', policy, {
+    action: 'git.commit.atomic', repository: 'alescim17/aether-factory', branch: 'issue-x', expected_parent_sha: 'a'.repeat(40), message: 'x', files: [{ path: 'x.txt', content: 'x', mode: '160000' }],
+  }), (error) => error.code === 'FILE_MODE_INVALID');
+  assert.equal(calls, 1);
+});

@@ -4,14 +4,15 @@ import { parseCommand, authorize, RepoRelayError, assertChecksGreen, receiptMark
 
 const policy = {
   control_repository: 'alescim17/github-chatops',
-  control_issues: [1],
+  control_issues: [3],
   authorized_actors: ['alescim17'],
-  allowed_repositories: ['alescim17/aether-factory'],
+  allowed_repositories: ['target/aether'],
 };
 
-test('parseCommand accepts a typed command', () => {
-  const command = parseCommand('/reporelay {"v":1,"request_id":"r1","action":"pr.ready","repository":"alescim17/aether-factory"}');
+test('parseCommand accepts a typed target-alias command', () => {
+  const command = parseCommand('/reporelay {"v":1,"request_id":"r1","action":"pr.ready","repository":"target/aether"}');
   assert.equal(command.action, 'pr.ready');
+  assert.equal(command.repository, 'target/aether');
 });
 
 test('parseCommand rejects malformed JSON', () => {
@@ -19,11 +20,11 @@ test('parseCommand rejects malformed JSON', () => {
 });
 
 test('authorize rejects actors outside allowlist', () => {
-  assert.throws(() => authorize({ policy, actor: 'mallory', controlRepository: 'alescim17/github-chatops', controlIssue: 1, command: { repository: 'alescim17/aether-factory' } }), (error) => error.code === 'ACTOR_FORBIDDEN');
+  assert.throws(() => authorize({ policy, actor: 'mallory', controlRepository: 'alescim17/github-chatops', controlIssue: 3, command: { repository: 'target/aether' } }), (error) => error.code === 'ACTOR_FORBIDDEN');
 });
 
-test('authorize rejects target repositories outside allowlist', () => {
-  assert.throws(() => authorize({ policy, actor: 'alescim17', controlRepository: 'alescim17/github-chatops', controlIssue: 1, command: { repository: 'someone/else' } }), (error) => error.code === 'REPOSITORY_FORBIDDEN');
+test('authorize rejects target aliases outside allowlist', () => {
+  assert.throws(() => authorize({ policy, actor: 'alescim17', controlRepository: 'alescim17/github-chatops', controlIssue: 3, command: { repository: 'target/else' } }), (error) => error.code === 'REPOSITORY_FORBIDDEN');
 });
 
 test('assertChecksGreen accepts success/neutral/skipped and ignores historical duplicates selected upstream', () => {
@@ -38,7 +39,7 @@ test('assertChecksGreen fails pending checks', () => {
 });
 
 test('request_id is mandatory and constrained', () => {
-  assert.throws(() => parseCommand('/reporelay {"v":1,"request_id":"bad space","action":"pr.ready","repository":"alescim17/aether-factory"}'), (error) => error.code === 'REQUEST_ID_INVALID');
+  assert.throws(() => parseCommand('/reporelay {"v":1,"request_id":"bad space","action":"pr.ready","repository":"target/aether"}'), (error) => error.code === 'REQUEST_ID_INVALID');
 });
 
 test('assertChecksGreen fails a non-green combined commit status even when returned contexts look green', () => {
@@ -50,7 +51,7 @@ test('assertChecksGreen fails a non-green combined commit status even when retur
 });
 
 test('same request_id with different semantic command intent fails closed', () => {
-  const first = { v: 1, request_id: 'same', action: 'pr.ready', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40) };
+  const first = { v: 1, request_id: 'same', action: 'pr.ready', repository: 'target/aether', pr: 108, expected_head_sha: 'a'.repeat(40) };
   const second = { ...first, pr: 109 };
   const marker = receiptMarker({ sourceCommentId: '1', requestId: first.request_id, action: first.action, repository: first.repository, status: 'STARTED', hash: commandHash(first) });
   assert.throws(() => assertReceiptCompatible(marker, second), (error) => error.code === 'REQUEST_ID_CONFLICT');

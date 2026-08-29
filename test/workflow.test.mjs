@@ -9,7 +9,7 @@ test('privileged workflow pins executable actions to full commit SHAs', async ()
   const workflow = await fs.readFile(workflowUrl, 'utf8');
   const uses = workflow
     .split(/\r?\n/)
-    .map((line) => line.match(/^\s*-\s+uses:\s+([^\s#]+)/)?.[1])
+    .map((line) => line.match(/^\s*(?:-\s*)?uses:\s+([^\s#]+)/)?.[1])
     .filter(Boolean);
   assert.ok(uses.length >= 2, `expected at least two pinned actions, got ${uses.length}`);
   for (const ref of uses) {

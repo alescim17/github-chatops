@@ -1,105 +1,142 @@
 # RepoRelay
 
-RepoRelay is a public, repository-agnostic GitHub ChatOps control plane for deterministic GitHub mutations initiated from ChatGPT when a native GitHub write action is missing, temporarily unavailable, or broken.
+RepoRelay is a repository-agnostic GitHub ChatOps control plane for deterministic, policy-gated repository mutations.
 
-Target repositories can remain private. The public repository is intentionally small so its standard GitHub-hosted Actions can run without consuming private-repository Actions minutes.
-
-## Model
+Commands are submitted as typed comments and executed through GitHub Actions with a short-lived GitHub App installation token.
 
 ```text
-ChatGPT
-  ├─ native GitHub mutation (preferred when healthy)
-  │
-  └─ RepoRelay fallback
-       ├─ metadata-only command → public Issue #3
-       └─ sensitive command → private target comment
-                              + public Issue #3 relay pointer
-                                      ↓
-                               RepoRelay Action
-                                      ↓
-                          short-lived GitHub App token
-                                      ↓
-                               private target repo
+operator / automation
+        ↓
+GitHub comment
+        ↓
+GitHub Actions
+        ↓
+GitHub App installation token
+        ↓
+allowlisted target repository
 ```
 
-The privileged `issue_comment` workflow always runs from this repository's default branch. Target repositories do not need a RepoRelay workflow in V1.
+The control repository can be public while target repositories remain private. Target repositories do not need a RepoRelay workflow in the central-control model.
 
-## Public control-plane privacy
+## Command channels
 
-Private repository full names are not stored in `config/policy.json` or normal command receipts. Public commands use aliases such as `target/aether`. The alias-to-repository mapping is stored only in the `REPORELAY_TARGETS_JSON` Actions secret.
+RepoRelay supports two command paths.
 
-Only metadata-only actions may execute directly from public Issue #3:
+### Public metadata commands
+
+Metadata-only operations may be posted directly to the public command-bus issue. Public receipts intentionally contain minimal execution metadata.
+
+Allowed public actions include:
 
 - `pr.ready`
 - `pr.draft`
 - `pr.merge`
+- `branch.delete_merged`
 - `workflow.rerun`
 - `workflow.rerun_failed`
 - `workflow.cancel`
 - `workflow.job.rerun`
 
-All content-bearing or potentially sensitive actions must use `relay.private`.
+### Private relay
 
-## Private relay
+Content-bearing or potentially sensitive operations use `relay.private`.
 
-For a sensitive mutation, ChatGPT first writes the complete command as a comment in the private target repository:
+1. Put the complete `/reporelay-private { ... }` command in an issue or PR comment inside the private target repository.
+2. Post a small `relay.private` envelope to the public command bus containing only the target alias, `request_id`, and private `source_comment_id`.
+3. RepoRelay fetches the private source comment with its GitHub App token, verifies the author and envelope binding, executes the command, and writes detailed evidence back to the private source conversation.
+
+Example private command:
 
 ```text
 /reporelay-private
-{"v":1,"request_id":"feature-commit-1","action":"git.commit.atomic","repository":"target/aether","branch":"issue-x","expected_parent_sha":"<40-char-sha>","message":"fix: example","files":[{"path":"src/example.ts","content":"..."}]}
+{"v":1,"request_id":"change-1","action":"git.commit.atomic","repository":"target/example","branch":"issue-42","expected_parent_sha":"<40-char-sha>","message":"fix: example","files":[{"path":"src/example.ts","content":"..."}]}
 ```
 
-Then ChatGPT posts only a pointer to public command-bus Issue #3:
+Public relay envelope:
 
 ```text
 /reporelay
-{"v":1,"request_id":"feature-commit-1","action":"relay.private","repository":"target/aether","source_comment_id":123456789}
+{"v":1,"request_id":"change-1","action":"relay.private","repository":"target/example","source_comment_id":123456789}
 ```
-
-RepoRelay resolves the alias from its secret target map, fetches the private comment with the GitHub App token, verifies that its author is the authorized actor, requires matching `request_id` and target alias, executes the private command, and writes detailed results back to the private issue/PR. The public receipt stays minimal.
 
 ## Safety properties
 
-- typed JSON only; no arbitrary shell and no generic HTTP/API proxy
+- typed, versioned JSON commands only
+- no arbitrary shell execution
+- no generic HTTP/API proxy
 - authenticated GitHub actor allowlist
 - target alias allowlist plus secret alias-to-repository mapping
-- write-ahead idempotency receipt keyed by source comment/request ID and canonical command hash
+- write-ahead idempotency receipts with canonical command hashing
 - duplicate or changed intent fails closed
-- exact `expected_head_sha` fence for Ready/Draft/Merge; a raced Ready is restored to Draft
+- exact `expected_head_sha` fencing for Ready, Draft, Merge, and merged-branch cleanup
 - optional `expected_base_sha` merge fence
 - current exact-head check/status evidence required before merge
-- green checks, review-decision, unresolved-thread and mergeability gates before merge
+- mergeability, review-decision, and unresolved-thread gates
 - PR head/base refetched immediately before merge
 - atomic multi-file commits use `expected_parent_sha` and non-force branch updates
 - direct default-branch commits and branch creation disabled by policy
-- public logs/receipts do not emit private command results
-- privileged workflow dependencies are pinned to reviewed full commit SHAs
+- privileged workflow dependencies pinned to reviewed full commit SHAs
+- public receipts do not expose private command results
 
-## V1 actions
+## Command surface
 
-PR: `pr.create`, `pr.update`, `pr.ready`, `pr.draft`, `pr.merge`, reviewer/review/thread mutations.
+### Pull requests
 
-Issues: create/update, labels, assignees, lock/unlock, comments, milestone create/update/delete.
+- `pr.create`
+- `pr.update`
+- `pr.ready`
+- `pr.draft`
+- `pr.merge`
+- reviewer, review, and review-thread mutations
 
-Actions: dispatch, rerun, rerun failed, cancel, job rerun.
+### Issues and milestones
 
-Git: branch create/update/delete and `git.commit.atomic`.
+- issue create/update
+- labels and assignees
+- lock/unlock
+- comments
+- milestone create/update/delete
 
-## Example: Ready
+### Actions
+
+- workflow dispatch
+- rerun
+- rerun failed
+- cancel
+- job rerun
+
+### Git
+
+- `branch.create`
+- `branch.update`
+- `branch.delete`
+- `branch.delete_merged`
+- `git.commit.atomic`
+
+`branch.delete_merged` is the recommended post-merge cleanup path. It derives the branch from a merged PR and deletes it only when:
+
+- the PR is actually merged;
+- the PR head belongs to the same repository;
+- `expected_head_sha` matches the merged head;
+- the branch still points to that exact SHA;
+- the branch is not the default branch;
+- no other open PR uses the branch.
+
+Example:
 
 ```text
 /reporelay
-{"v":1,"request_id":"aether-108-ready-ba457d6","action":"pr.ready","repository":"target/aether","pr":108,"expected_head_sha":"ba457d654a622723b90c72ac8d7c00ec4a301c5c"}
+{"v":1,"request_id":"cleanup-42","action":"branch.delete_merged","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>"}
 ```
 
 ## Example: fenced merge
 
 ```text
 /reporelay
-{"v":1,"request_id":"aether-108-merge-ba457d6","action":"pr.merge","repository":"target/aether","pr":108,"expected_head_sha":"ba457d654a622723b90c72ac8d7c00ec4a301c5c","expected_base_sha":"a84c983ed352e246322fdfcfbefee227fc962900","method":"merge"}
+{"v":1,"request_id":"merge-42","action":"pr.merge","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>","expected_base_sha":"<40-char-base-sha>","method":"merge"}
 ```
 
-RepoRelay refetches the PR immediately before the merge mutation and fails closed if the head/base moved.
+RepoRelay refetches live authority immediately before destructive or state-transitioning mutations and fails closed when preconditions change.
 
 ## Setup
 

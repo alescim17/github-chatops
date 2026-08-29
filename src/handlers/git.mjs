@@ -1,5 +1,5 @@
 import { invariant, splitRepository, githubRequest, getRepository } from '../core.mjs';
-import { requireString, ensureBranchWriteAllowed } from './common.mjs';
+import { requireNumber, requireString, ensureBranchWriteAllowed } from './common.mjs';
 
 export async function handleBranchCreate(token, policy, command) {
   const branch = requireString(command, 'branch', /^[A-Za-z0-9._\/-]+$/);
@@ -31,6 +31,51 @@ export async function handleBranchDelete(token, policy, command) {
   invariant(ref?.object?.sha === expected, 'EXPECTED_BRANCH_SHA_MISMATCH', 'Branch moved before deletion', { expected, actual: ref?.object?.sha });
   await githubRequest(token, 'DELETE', `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`);
   return { deleted: true, branch, sha: expected };
+}
+
+export async function handleMergedBranchDelete(token, command) {
+  const pullNumber = requireNumber(command, 'pr');
+  const expectedHead = requireString(command, 'expected_head_sha', /^[0-9a-f]{40}$/i);
+  const { owner, repo } = splitRepository(command.repository);
+
+  const pull = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/pulls/${pullNumber}`);
+  invariant(pull?.merged === true || Boolean(pull?.merged_at), 'PR_NOT_MERGED', 'Pull request is not merged');
+  invariant(
+    String(pull?.head?.repo?.full_name || '').toLowerCase() === command.repository.toLowerCase(),
+    'PR_HEAD_REPOSITORY_MISMATCH',
+    'Merged pull request head belongs to another repository',
+  );
+  invariant(pull?.head?.sha === expectedHead, 'EXPECTED_HEAD_MISMATCH', 'Merged pull request head does not match expected_head_sha', {
+    expected: expectedHead,
+    actual: pull?.head?.sha || null,
+  });
+
+  const branch = pull?.head?.ref;
+  invariant(typeof branch === 'string' && branch.length > 0, 'PR_HEAD_BRANCH_MISSING', 'Merged pull request has no deletable head branch');
+
+  const repoMeta = await getRepository(token, command.repository);
+  invariant(branch !== repoMeta.default_branch, 'DEFAULT_BRANCH_DELETE_FORBIDDEN', 'Default branch cannot be deleted');
+
+  const ref = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
+  invariant(ref?.object?.sha === expectedHead, 'EXPECTED_BRANCH_SHA_MISMATCH', 'Branch moved after the pull request was merged', {
+    expected: expectedHead,
+    actual: ref?.object?.sha || null,
+  });
+
+  const openPulls = await githubRequest(
+    token,
+    'GET',
+    `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=100`,
+  );
+  const blockers = Array.isArray(openPulls)
+    ? openPulls.filter((item) => Number(item?.number) !== pullNumber)
+    : [];
+  invariant(blockers.length === 0, 'BRANCH_IN_USE_BY_OPEN_PR', 'Branch is still used by another open pull request', {
+    pull_requests: blockers.map((item) => item.number),
+  });
+
+  await githubRequest(token, 'DELETE', `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`);
+  return { deleted: true, merged_pr: pullNumber, branch, sha: expectedHead };
 }
 
 export async function handleAtomicCommit(token, policy, command) {

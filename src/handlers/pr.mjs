@@ -90,9 +90,12 @@ export async function handlePrMerge(token, policy, command) {
     const unresolved = governance.reviewThreads.nodes.filter((thread) => !thread.isResolved).length;
     invariant(unresolved === 0, 'REVIEW_THREADS_UNRESOLVED', 'Pull request has unresolved review threads', { unresolved });
   }
-  if (policy.merge.require_current_checks_green) {
+  if (policy.merge.require_current_checks_green || policy.merge.require_any_check) {
     const checks = await getCurrentChecks(token, command.repository, expectedHead);
-    assertChecksGreen(checks);
+    if (policy.merge.require_any_check) {
+      invariant(checks.checkRuns.length + checks.statuses.length > 0, 'CHECK_EVIDENCE_REQUIRED', 'No current check or status evidence exists for the expected head');
+    }
+    if (policy.merge.require_current_checks_green) assertChecksGreen(checks);
   }
   pr = await assertExpectedHead(token, command.repository, number, expectedHead);
   await assertExpectedBase(token, pr, command.expected_base_sha);

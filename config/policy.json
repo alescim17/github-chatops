@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "control_repository": "alescim17/github-chatops",
+  "control_issues": [1],
+  "authorized_actors": ["alescim17"],
+  "allowed_repositories": [
+    "alescim17/github-chatops",
+    "alescim17/aether-factory",
+    "alescim17/streamforge",
+    "alescim17/homeassistant"
+  ],
+  "merge_methods": ["merge", "squash", "rebase"],
+  "allow_auto_merge": false,
+  "allow_direct_default_branch_writes": false,
+  "allow_force_branch_updates": false,
+  "merge": {
+    "require_mergeable": true,
+    "require_no_changes_requested": true,
+    "require_no_unresolved_review_threads": true,
+    "require_current_checks_green": true
+  },
+  "limits": {
+    "max_atomic_commit_files": 32,
+    "max_atomic_commit_bytes": 48000,
+    "max_command_bytes": 60000
+  }
+}

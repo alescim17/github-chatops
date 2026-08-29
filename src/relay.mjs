@@ -4,6 +4,7 @@ export const PUBLIC_ACTIONS = new Set([
   'pr.ready',
   'pr.draft',
   'pr.merge',
+  'branch.delete_merged',
   'workflow.rerun',
   'workflow.rerun_failed',
   'workflow.cancel',

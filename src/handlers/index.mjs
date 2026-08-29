@@ -2,7 +2,7 @@ import { RepoRelayError } from '../core.mjs';
 import { handlePrCreate, handlePrUpdate, setDraftState, handlePrMerge, handleReviewers, handleReview, handleReviewDismiss, handleReviewThread } from './pr.mjs';
 import { handleIssueCreate, handleIssueUpdate, handleLabels, handleAssignees, handleConversationLock, handleCommentCreate, handleCommentUpdate, handleMilestoneCreate, handleMilestoneUpdate, handleMilestoneDelete } from './issue.mjs';
 import { handleWorkflowDispatch, handleWorkflowRunMutation, handleWorkflowJobRerun } from './workflow.mjs';
-import { handleBranchCreate, handleBranchUpdate, handleBranchDelete, handleAtomicCommit } from './git.mjs';
+import { handleBranchCreate, handleBranchUpdate, handleBranchDelete, handleMergedBranchDelete, handleAtomicCommit } from './git.mjs';
 
 export async function executeCommand(token, policy, command) {
   switch (command.action) {
@@ -38,6 +38,7 @@ export async function executeCommand(token, policy, command) {
     case 'branch.create': return handleBranchCreate(token, policy, command);
     case 'branch.update': return handleBranchUpdate(token, policy, command);
     case 'branch.delete': return handleBranchDelete(token, policy, command);
+    case 'branch.delete_merged': return handleMergedBranchDelete(token, command);
     case 'git.commit.atomic': return handleAtomicCommit(token, policy, command);
     default: throw new RepoRelayError('ACTION_UNSUPPORTED', `Unsupported RepoRelay action: ${command.action}`);
   }

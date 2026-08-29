@@ -6,7 +6,7 @@ const policy = {
   merge_methods: ['merge'],
   allow_direct_default_branch_writes: false,
   limits: { max_atomic_commit_files: 32, max_atomic_commit_bytes: 48000 },
-  merge: { require_mergeable: true, require_no_changes_requested: true, require_no_unresolved_review_threads: true, require_current_checks_green: true },
+  merge: { require_mergeable: true, require_no_changes_requested: true, require_no_unresolved_review_threads: true, require_current_checks_green: true, require_any_check: true },
 };
 
 test('unsupported actions fail closed before network access', async () => {

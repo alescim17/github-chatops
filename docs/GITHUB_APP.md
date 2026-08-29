@@ -34,6 +34,8 @@ The workflow uses `actions/create-github-app-token@v3` to mint a short-lived ins
 
 ## Control channel
 
-V1 accepts commands only from Issue #1 of `alescim17/github-chatops`, only when GitHub reports the comment author as `alescim17`.
+V1 accepts commands only from permanent command-bus Issue #3 of `alescim17/github-chatops`, only when GitHub reports the comment author as `alescim17`.
+
+Keep Issue #3 open and unlocked. Implementation issues and PRs may close normally without affecting the command bus.
 
 No token, password, or signature is ever placed in a command comment.

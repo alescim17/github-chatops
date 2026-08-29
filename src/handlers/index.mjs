@@ -35,7 +35,7 @@ export async function executeCommand(token, policy, command) {
     case 'workflow.rerun_failed': return handleWorkflowRunMutation(token, command, 'rerun-failed-jobs');
     case 'workflow.cancel': return handleWorkflowRunMutation(token, command, 'cancel');
     case 'workflow.job.rerun': return handleWorkflowJobRerun(token, command);
-    case 'branch.create': return handleBranchCreate(token, command);
+    case 'branch.create': return handleBranchCreate(token, policy, command);
     case 'branch.update': return handleBranchUpdate(token, policy, command);
     case 'branch.delete': return handleBranchDelete(token, policy, command);
     case 'git.commit.atomic': return handleAtomicCommit(token, policy, command);

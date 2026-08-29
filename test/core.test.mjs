@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCommand, authorize, RepoRelayError, assertChecksGreen } from '../src/core.mjs';
+import { parseCommand, authorize, RepoRelayError, assertChecksGreen, receiptMarker, assertReceiptCompatible, commandHash } from '../src/core.mjs';
 
 const policy = {
   control_repository: 'alescim17/github-chatops',
@@ -39,4 +39,19 @@ test('assertChecksGreen fails pending checks', () => {
 
 test('request_id is mandatory and constrained', () => {
   assert.throws(() => parseCommand('/reporelay {"v":1,"request_id":"bad space","action":"pr.ready","repository":"alescim17/aether-factory"}'), (error) => error.code === 'REQUEST_ID_INVALID');
+});
+
+test('assertChecksGreen fails a non-green combined commit status even when returned contexts look green', () => {
+  assert.throws(() => assertChecksGreen({
+    checkRuns: [],
+    statuses: [{ context: 'visible', state: 'success' }],
+    combinedState: 'failure',
+  }), (error) => error.code === 'COMMIT_STATUS_COMBINED_NOT_GREEN');
+});
+
+test('same request_id with different semantic command intent fails closed', () => {
+  const first = { v: 1, request_id: 'same', action: 'pr.ready', repository: 'alescim17/aether-factory', pr: 108, expected_head_sha: 'a'.repeat(40) };
+  const second = { ...first, pr: 109 };
+  const marker = receiptMarker({ sourceCommentId: '1', requestId: first.request_id, action: first.action, repository: first.repository, status: 'STARTED', hash: commandHash(first) });
+  assert.throws(() => assertReceiptCompatible(marker, second), (error) => error.code === 'REQUEST_ID_CONFLICT');
 });

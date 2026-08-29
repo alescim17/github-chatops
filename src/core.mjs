@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 
 export class RepoRelayError extends Error {
   constructor(code, message, details = undefined) {
@@ -51,6 +52,20 @@ export function authorize({ policy, actor, controlRepository, controlIssue, comm
 export function splitRepository(repository) {
   const [owner, repo] = repository.split('/');
   return { owner, repo };
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+    );
+  }
+  return value;
+}
+
+export function commandHash(command) {
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalize(command))).digest('hex');
 }
 
 export async function githubRequest(token, method, path, body, options = {}) {
@@ -153,12 +168,32 @@ function latestCheckRuns(checkRuns = []) {
 
 export async function getCurrentChecks(token, repository, sha) {
   const { owner, repo } = splitRepository(repository);
-  const checks = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100`);
-  const statuses = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/commits/${sha}/status`);
+  const checkRuns = [];
+  let page = 1;
+  while (page <= 10) {
+    const checks = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`);
+    checkRuns.push(...(checks?.check_runs || []));
+    if ((checks?.check_runs || []).length < 100) break;
+    page += 1;
+  }
+  invariant(page <= 10, 'CHECK_RUNS_SCAN_LIMIT', 'Check-run scan exceeded 1000 entries');
+
+  const statuses = [];
+  let combinedState = 'pending';
+  page = 1;
+  while (page <= 10) {
+    const result = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/commits/${sha}/status?per_page=100&page=${page}`);
+    combinedState = result?.state || combinedState;
+    statuses.push(...(result?.statuses || []));
+    if ((result?.statuses || []).length < 100) break;
+    page += 1;
+  }
+  invariant(page <= 10, 'COMMIT_STATUSES_SCAN_LIMIT', 'Commit-status scan exceeded 1000 entries');
+
   return {
-    checkRuns: latestCheckRuns(checks?.check_runs || []),
-    statuses: statuses?.statuses || [],
-    combinedState: statuses?.state || 'pending',
+    checkRuns: latestCheckRuns(checkRuns),
+    statuses,
+    combinedState,
   };
 }
 
@@ -173,6 +208,9 @@ export function assertChecksGreen(checks) {
     checks: failed.map((run) => ({ name: run.name, conclusion: run.conclusion })),
   });
   if (checks.statuses.length > 0) {
+    invariant(checks.combinedState === 'success', 'COMMIT_STATUS_COMBINED_NOT_GREEN', 'Combined commit status is not green', {
+      state: checks.combinedState,
+    });
     const badStatuses = checks.statuses.filter((status) => status.state !== 'success');
     invariant(badStatuses.length === 0, 'COMMIT_STATUSES_NOT_GREEN', 'One or more commit status contexts are not green', {
       statuses: badStatuses.map((status) => ({ context: status.context, state: status.state })),
@@ -180,8 +218,19 @@ export function assertChecksGreen(checks) {
   }
 }
 
-export function receiptMarker({ sourceCommentId, requestId, action, repository, status }) {
-  return `<!-- reporelay-receipt source_comment_id=${sourceCommentId} request_id=${requestId} action=${action} repository=${repository} status=${status} -->`;
+export function receiptMarker({ sourceCommentId, requestId, action, repository, status, hash }) {
+  return `<!-- reporelay-receipt source_comment_id=${sourceCommentId} request_id=${requestId} action=${action} repository=${repository} command_hash=${hash} status=${status} -->`;
+}
+
+export function assertReceiptCompatible(receiptBody, command) {
+  invariant(typeof receiptBody === 'string', 'RECEIPT_INVALID', 'Existing receipt body is invalid');
+  const match = receiptBody.match(/command_hash=([0-9a-f]{64})/);
+  invariant(match, 'RECEIPT_HASH_MISSING', 'Existing receipt predates command intent hashing; reconcile it manually');
+  const hash = commandHash(command);
+  invariant(match[1] === hash, 'REQUEST_ID_CONFLICT', 'Existing request_id/source comment belongs to different command intent', {
+    existing_hash: match[1],
+    command_hash: hash,
+  });
 }
 
 function receiptBody(sourceCommentId, command, status, result) {
@@ -190,6 +239,7 @@ function receiptBody(sourceCommentId, command, status, result) {
     requestId: command?.request_id || 'unknown',
     action: command?.action || 'unknown',
     repository: command?.repository || 'unknown',
+    hash: command ? commandHash(command) : '0'.repeat(64),
     status,
   });
   const safeResult = result === undefined ? null : result;

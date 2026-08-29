@@ -2,7 +2,7 @@ name: RepoRelay CI
 
 on:
   push:
-    branches: [main, issue-*]
+    branches: [main]
   pull_request:
 
 permissions:

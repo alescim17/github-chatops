@@ -8,6 +8,7 @@ import {
   findReceipt,
   createReceipt,
   updateReceipt,
+  assertReceiptCompatible,
 } from './core.mjs';
 import { executeCommand } from './handlers/index.mjs';
 
@@ -41,7 +42,8 @@ try {
     command.request_id,
   );
   if (existing) {
-    console.log(`RepoRelay duplicate suppressed by receipt ${existing.id}`);
+    assertReceiptCompatible(existing.body, command);
+    console.log(`RepoRelay duplicate suppressed by compatible receipt ${existing.id}`);
     process.exit(0);
   }
 

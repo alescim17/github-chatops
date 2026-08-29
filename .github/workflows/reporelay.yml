@@ -23,6 +23,7 @@ jobs:
     if: >-
       (github.event_name == 'issue_comment' &&
        github.event.comment.user.login == 'alescim17' &&
+       github.event.issue.number == 1 &&
        startsWith(github.event.comment.body, '/reporelay')) ||
       (github.event_name == 'workflow_dispatch' && github.actor == 'alescim17')
     runs-on: ubuntu-latest

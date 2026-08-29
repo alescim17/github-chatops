@@ -130,3 +130,43 @@ test('git.commit.atomic rejects unsupported Git tree modes before blob creation'
   }), (error) => error.code === 'FILE_MODE_INVALID');
   assert.equal(calls, 1);
 });
+
+test('pr.merge requires at least one exact-head check or status evidence item', async (t) => {
+  const originalFetch = global.fetch;
+  let mergePutSeen = false;
+  global.fetch = async (url, options = {}) => {
+    const value = String(url);
+    const method = options.method || 'GET';
+    if (method === 'PUT' && value.endsWith('/pulls/108/merge')) mergePutSeen = true;
+    if (value.endsWith('/repos/alescim17/aether-factory/pulls/108')) {
+      return new Response(JSON.stringify({
+        head: { sha: 'a'.repeat(40) },
+        base: { sha: 'c'.repeat(40) },
+        state: 'open',
+        draft: false,
+        mergeable: true,
+        mergeable_state: 'clean',
+      }), { status: 200 });
+    }
+    if (value.endsWith('/graphql')) {
+      return new Response(JSON.stringify({ data: { repository: { pullRequest: {
+        id: 'PR_node', isDraft: false, reviewDecision: null,
+        reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+      } } } }), { status: 200 });
+    }
+    if (value.includes('/check-runs?')) {
+      return new Response(JSON.stringify({ total_count: 0, check_runs: [] }), { status: 200 });
+    }
+    if (value.includes('/status?')) {
+      return new Response(JSON.stringify({ state: 'pending', statuses: [] }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await assert.rejects(() => executeCommand('token', policy, {
+    action: 'pr.merge', repository: 'alescim17/aether-factory', pr: 108,
+    expected_head_sha: 'a'.repeat(40), expected_base_sha: 'c'.repeat(40), method: 'merge',
+  }), (error) => error.code === 'CHECK_EVIDENCE_REQUIRED');
+  assert.equal(mergePutSeen, false);
+});

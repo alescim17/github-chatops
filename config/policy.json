@@ -8,10 +8,10 @@
     "alescim17"
   ],
   "allowed_repositories": [
-    "alescim17/github-chatops",
-    "alescim17/aether-factory",
-    "alescim17/streamforge",
-    "alescim17/homeassistant"
+    "target/reporelay",
+    "target/aether",
+    "target/streamforge",
+    "target/homeassistant"
   ],
   "merge_methods": [
     "merge",

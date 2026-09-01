@@ -82,6 +82,7 @@ Public relay envelope:
 - mergeability, review-decision, and unresolved-thread gates
 - PR head/base refetched immediately before merge
 - atomic multi-file commits use `expected_parent_sha` and non-force branch updates
+- atomic exact-text patches additionally require the expected blob SHA and expected replacement count for every touched file
 - direct default-branch commits and branch creation disabled by policy
 - privileged workflow dependencies pinned to reviewed full commit SHAs
 - public receipts do not expose private command results
@@ -120,6 +121,9 @@ Public relay envelope:
 - `branch.delete`
 - `branch.delete_merged`
 - `git.commit.atomic`
+- `git.patch.atomic`
+
+`git.patch.atomic` modifies existing UTF-8 repository files without sending their full contents. Every file is read at `expected_parent_sha`, must match `expected_blob_sha`, and every exact `before` string must occur the declared `expected_count` before a single non-force commit is created.
 
 `branch.delete_merged` is the recommended post-merge cleanup path. It derives the branch from a merged PR and deletes it only when:
 

@@ -18,6 +18,14 @@ allowlisted target repository
 
 The control repository can be public while target repositories remain private. Target repositories do not need a RepoRelay workflow in the central-control model.
 
+## Operator authority protocol
+
+ChatGPT/web orchestrators must use GitHub native access as the authoritative read plane and RepoRelay as the fenced write/control plane for configured target repositories. Every consequential mutation requires a fresh authoritative freeze, expected-state fences where supported, and GitHub-native read-after-write verification before the resulting state is considered complete.
+
+A single connector-wrapper failure is not sufficient evidence that GitHub is unavailable, and `PRIVATE_RELAY_REQUIRED` is a policy decision rather than a RepoRelay outage. Native target writes are a recovery path only when explicitly authorized.
+
+See [`docs/OPERATOR_PROTOCOL.md`](docs/OPERATOR_PROTOCOL.md) for the normative orchestration protocol, including anti-false-blockage, contradiction handling, and final-state reporting rules.
+
 ## Command channels
 
 RepoRelay supports two command paths.

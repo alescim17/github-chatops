@@ -1,5 +1,6 @@
 import { RepoRelayError } from '../core.mjs';
 import { handlePrCreate, handlePrUpdate, setDraftState, handlePrMerge, handleReviewers, handleReview, handleReviewDismiss, handleReviewThread } from './pr.mjs';
+import { handlePrMergeFrozen } from './pr-merge-frozen.mjs';
 import { handleIssueCreate, handleIssueUpdate, handleLabels, handleAssignees, handleConversationLock, handleCommentCreate, handleCommentUpdate, handleMilestoneCreate, handleMilestoneUpdate, handleMilestoneDelete } from './issue.mjs';
 import { handleWorkflowDispatch, handleWorkflowRunMutation, handleWorkflowJobRerun } from './workflow.mjs';
 import { handleBranchCreate, handleBranchUpdate, handleBranchDelete, handleMergedBranchDelete, handleAtomicCommit } from './git.mjs';
@@ -11,6 +12,7 @@ export async function executeCommand(token, policy, command) {
     case 'pr.ready': return setDraftState(token, command, true);
     case 'pr.draft': return setDraftState(token, command, false);
     case 'pr.merge': return handlePrMerge(token, policy, command);
+    case 'pr.merge.frozen': return handlePrMergeFrozen(token, policy, command);
     case 'pr.reviewers.request': return handleReviewers(token, command, true);
     case 'pr.reviewers.remove': return handleReviewers(token, command, false);
     case 'pr.review': return handleReview(token, command);

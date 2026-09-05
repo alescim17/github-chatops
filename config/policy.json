@@ -64,6 +64,7 @@
     "max_search_terms": 8,
     "max_search_term_bytes": 80,
     "max_parent_commits": 8,
-    "max_public_label_bytes": 160
+    "max_public_label_bytes": 160,
+    "max_freeze_history_items": 1000
   }
 }

@@ -30,7 +30,7 @@ export function fakeApi(options = {}) {
     head: { ref: 'issue-183', sha: options.race === 'pr-head' && seen > 1 ? E : B, repo },
     base: { ref: 'main', sha: options.race === 'pr-base' && seen > 1 ? E : A, repo },
     commits: 2, changed_files: 1, updated_at: time });
-  const run = (value = B) => ({ id: 55, name: 'Validation', status: 'completed', conclusion: 'success', event: 'pull_request',
+  const run = (value = B) => ({ id: 55, workflow_id: 101, name: 'Validation', status: 'completed', conclusion: 'success', event: 'pull_request',
     run_number: 31, run_attempt: 2, head_sha: value, repository: repo, logs: 'PRIVATE_WORKFLOW_LOG', path: 'src/private-source.mjs' });
   const job = { id: 66, run_id: 55, head_sha: B, name: 'test', status: 'completed', conclusion: 'success',
     run_url: `https://api.github.com/repos/${target}/actions/runs/55`,

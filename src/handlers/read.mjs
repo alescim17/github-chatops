@@ -42,12 +42,39 @@ function pageResult(items, response, command, total = null) {
   return { page: command.page, per_page: command.per_page, total_count: total,
     next_page: more ? command.page + 1 : null, has_more: more, items };
 }
-function completeCollection(response, key, max) {
-  const data = object(response.data);
-  const items = array(data[key]);
-  const total = count(data.total_count);
-  if (items.length > max || total > max || response.hasNextPage || items.length !== total) tooLarge('use_paged_query');
-  return items;
+// GitHub's filter=latest still includes separate historical check suites.
+// Scan complete bounded history before projecting the latest authority identities.
+async function completeHistory(client, route, key, limits, params, metadata = () => null) {
+  const items = [];
+  const ids = new Set();
+  let total;
+  let firstMetadata;
+  for (let page = 1; ; page++) {
+    const response = await client.get(route, { ...params, per_page: limits.max_read_page_size, page });
+    const data = object(response.data);
+    const currentTotal = count(data.total_count);
+    const currentMetadata = metadata(data);
+    if (total !== undefined && (total !== currentTotal || resultDigest(firstMetadata) !== resultDigest(currentMetadata))) {
+      throw new RepoRelayError('READ_FREEZE_MOVED', 'Read history authority moved during pagination');
+    }
+    total = currentTotal;
+    firstMetadata = currentMetadata;
+    if (total > limits.max_freeze_history_items) tooLarge('use_paged_query');
+    const entries = array(data[key]);
+    const wanted = Math.min(limits.max_read_page_size, total - items.length);
+    if (entries.length !== wanted) tooLarge('use_paged_query');
+    for (const entry of entries) {
+      const id = integer(entry.id);
+      if (ids.has(id)) throw new RepoRelayError('READ_FREEZE_MOVED', 'Read history page repeated an identity');
+      ids.add(id);
+      items.push(entry);
+    }
+    if (items.length === total) {
+      if (response.hasNextPage) tooLarge('use_paged_query');
+      return { items, total, metadata: firstMetadata };
+    }
+    invariant(response.hasNextPage, 'READ_UPSTREAM_INCOMPLETE', 'GitHub pagination ended before the complete history was observed');
+  }
 }
 async function repository(client, expected) {
   const data = object((await client.get()).data);
@@ -146,23 +173,28 @@ function statusProjection(status) {
   return { context: text(status.context), state: text(status.state), id: status.id === undefined ? null : integer(status.id) };
 }
 async function fullChecks(client, exactSha, limits) {
-  const runsResponse = await client.get(`/commits/${exactSha}/check-runs`, { filter: 'latest', per_page: limits.max_check_runs, page: 1 });
-  const statusesResponse = await client.get(`/commits/${exactSha}/status`, { per_page: limits.max_commit_statuses, page: 1 });
-  invariant(statusesResponse.data?.sha === exactSha, 'READ_SCOPE_MISMATCH', 'Combined status is not tied to the requested SHA');
-  const runs = completeCollection(runsResponse, 'check_runs', limits.max_check_runs).map((run) => checkProjection(run, exactSha));
-  const statuses = completeCollection(statusesResponse, 'statuses', limits.max_commit_statuses).map(statusProjection);
-  return { sha: exactSha, check_runs: latest(runs, (run) => `${run.app_slug}:${run.name}`),
-    statuses: latest(statuses, (status) => status.context), combined_status: text(statusesResponse.data.state) };
+  const runHistory = await completeHistory(client, `/commits/${exactSha}/check-runs`, 'check_runs', limits, { filter: 'latest' });
+  const statusHistory = await completeHistory(client, `/commits/${exactSha}/status`, 'statuses', limits, {}, (data) => {
+    invariant(data.sha === exactSha, 'READ_SCOPE_MISMATCH', 'Combined status is not tied to the requested SHA');
+    return { sha: data.sha, state: text(data.state) };
+  });
+  const runs = latest(runHistory.items.map((run) => checkProjection(run, exactSha)), (run) => `${run.app_slug}:${run.name}`);
+  const statuses = latest(statusHistory.items.map(statusProjection), (status) => status.context);
+  if (runs.length > limits.max_check_runs || statuses.length > limits.max_commit_statuses) tooLarge('use_paged_query');
+  return { sha: exactSha, check_runs: runs, statuses, combined_status: statusHistory.metadata.state,
+    observed_check_run_count: runHistory.total, observed_status_count: statusHistory.total };
 }
 function runProjection(run) {
   return { id: integer(run.id), name: text(run.name, true), status: text(run.status), conclusion: text(run.conclusion, true),
     event: text(run.event), run_number: integer(run.run_number), run_attempt: integer(run.run_attempt), head_sha: sha(run.head_sha) };
 }
 async function fullWorkflows(client, exactSha, limits) {
-  const response = await client.get('/actions/runs', { head_sha: exactSha, per_page: limits.max_workflow_runs, page: 1 });
-  const runs = completeCollection(response, 'workflow_runs', limits.max_workflow_runs).map(runProjection);
+  const history = await completeHistory(client, '/actions/runs', 'workflow_runs', limits, { head_sha: exactSha });
+  const runs = history.items.map((run) => ({ ...runProjection(run), workflow_id: integer(run.workflow_id) }));
   invariant(runs.every((run) => run.head_sha === exactSha), 'READ_SCOPE_MISMATCH', 'Workflow evidence is not exact-SHA scoped');
-  return { sha: exactSha, runs: runs.sort((a, b) => a.id - b.id) };
+  const selected = latest(runs, (run) => `${run.workflow_id}:${run.event}`);
+  if (selected.length > limits.max_workflow_runs) tooLarge('use_paged_query');
+  return { sha: exactSha, selection: 'latest_per_workflow_event', observed_run_count: history.total, runs: selected };
 }
 async function collectFreeze(client, command, limits) {
   const repo = await repository(client, command.repository);

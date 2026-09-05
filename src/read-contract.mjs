@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { invariant, RepoRelayError } from './core.mjs';
 
-export const READ_PLANE_VERSION = '1.0.0';
+export const READ_PLANE_VERSION = '1.0.1';
 export const PUBLIC_READ_ACTIONS = Object.freeze(['read.capabilities', 'read.freeze']);
 export const PRIVATE_READ_ACTIONS = Object.freeze(['read.query']);
 const BODY = ['body_start_line', 'body_end_line'];
@@ -42,7 +42,7 @@ export const READ_LIMIT_KEYS = Object.freeze([
   'max_tree_entries', 'max_review_threads', 'max_check_runs', 'max_commit_statuses',
   'max_branch_items', 'max_commit_items', 'max_pr_files', 'max_artifact_items',
   'max_workflow_steps', 'max_search_terms', 'max_search_term_bytes', 'max_parent_commits',
-  'max_public_label_bytes',
+  'max_public_label_bytes', 'max_freeze_history_items',
 ]);
 
 export function readLimits(policy) {

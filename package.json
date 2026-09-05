@@ -6,6 +6,6 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/core.mjs && node --check src/relay.mjs && node --check src/runner.mjs && node --check src/handlers/common.mjs && node --check src/handlers/pr.mjs && node --check src/handlers/issue.mjs && node --check src/handlers/workflow.mjs && node --check src/handlers/git.mjs && node --check src/handlers/patch.mjs && node --check src/handlers/index.mjs"
+    "check": "node --check src/core.mjs && node --check src/relay.mjs && node --check src/runner.mjs && node --check src/handlers/common.mjs && node --check src/handlers/pr.mjs && node --check src/handlers/issue.mjs && node --check src/handlers/workflow.mjs && node --check src/handlers/git.mjs && node --check src/handlers/patch.mjs && node --check src/handlers/index.mjs && node --check src/read-contract.mjs && node --check src/read-client.mjs && node --check src/read-receipts.mjs && node --check src/handlers/read.mjs"
   }
 }

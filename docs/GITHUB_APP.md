@@ -85,3 +85,11 @@ For a public control repository:
 Use `branch.delete_merged` for routine cleanup instead of deleting branch refs directly.
 
 The action accepts a merged PR number and `expected_head_sha`. RepoRelay derives the head branch from GitHub and deletes it only if the PR is merged, the branch belongs to the same repository, the ref is unchanged, the branch is not the default branch, and no other open PR still uses it.
+
+## Typed read fallback permissions
+
+The current installation permissions above already support the typed read plane. **No permission expansion is required.** read.capabilities exposes installed protocol metadata only; read.freeze uses repository metadata, Contents, Pull requests, Issues, Checks, Statuses and Actions reads; private read.query uses the same read capabilities. Existing Issues write permission transports private command/receipt comments and is separate from side-effect-free target read handlers.
+
+Only target GET requests and a fixed GraphQL QUERY are used by read handlers. No generic REST proxy, arbitrary GraphQL or GraphQL mutation is added. No Administration, Secrets, Environments, Members, Deployments or organization administration permission is needed. The privileged workflow and its permission requests remain unchanged.
+
+Native GitHub stays the primary read path; see [OPERATOR_PROTOCOL.md](OPERATOR_PROTOCOL.md) and [READ_PLANE.md](READ_PLANE.md). Use fallback reads only when native authority is unusable or for explicit contradiction/recovery diagnosis. Never use a mutation receipt instead of an independent post-write observation.

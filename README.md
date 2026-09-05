@@ -18,7 +18,7 @@ The normative [operator protocol](docs/OPERATOR_PROTOCOL.md) defines the exact p
 
 `read.capabilities` is public, metadata-only installed protocol discovery: versions, actions, query kinds, explicit limits and fallback/read-after-write support.
 
-`read.freeze` is public, metadata-only authority: default/requested branch SHA/tree, PR head/base/lifecycle, Issue state, optional reviews and exact-SHA checks/workflows. The SUCCESS receipt contains the actual sanitized result, timestamps, stable=true and a canonical result_sha256. If authority moves during collection it fails READ_FREEZE_MOVED. It is a fresh GitHub-backed observation, not cached state or a reused mutation receipt.
+`read.freeze` is public, metadata-only authority: default/requested branch SHA/tree, PR head/base/lifecycle, Issue state, optional reviews and exact-SHA latest checks/workflow-event identities after a complete bounded paginated history scan. The SUCCESS receipt contains the actual sanitized result, timestamps, stable=true and a canonical result_sha256. If authority moves during collection it fails READ_FREEZE_MOVED. It is a fresh GitHub-backed observation, not cached state or a reused mutation receipt.
 
 `read.query` is PRIVATE ONLY through `relay.private`. Its fixed typed kinds provide bounded repository, branch, commit, tree, UTF-8 file range, compare, search, Issue/PR/comment/review/thread/check and workflow/job/log/artifact-metadata reads. Direct public invocation fails PRIVATE_RELAY_REQUIRED before target content is fetched.
 

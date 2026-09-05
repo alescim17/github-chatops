@@ -277,6 +277,7 @@ test('safe public read-failure guidance cannot leak raw errors or private before
 test('core public typed-read transport preserves a valid near-limit envelope without slicing', async (t) => {
   install(t);
   const { result } = await handleRead('test-installation-token', policy, freezeCommand);
+  result.checks[0].observed_check_run_count = 45;
   result.checks[0].check_runs = Array.from({ length: 45 }, (_, i) => ({ id: i + 1, name: `Check ${i}`, app_slug: 'github-actions', status: 'completed', conclusion: 'success' }));
   const envelope = sealReadResult(result, limits);
   const receipt = publicSuccessResult(freezeCommand, envelope, false, limits);

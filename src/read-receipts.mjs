@@ -95,6 +95,8 @@ export function sanitizePublicRead(action, raw, limits, sensitive = []) {
   invariant(new Set(result.relevant_shas).size === result.relevant_shas.length, 'PUBLIC_READ_RESULT_UNSAFE', 'Duplicate SHA scope');
   result.checks = list(raw.checks, limits.max_freeze_shas).map((checks) => ({
     sha: sha(checks.sha), combined_status: member(checks.combined_status, statuses),
+    observed_check_run_count: integer(checks.observed_check_run_count, limits.max_freeze_history_items, 0),
+    observed_status_count: integer(checks.observed_status_count, limits.max_freeze_history_items, 0),
     check_runs: list(checks.check_runs, limits.max_check_runs).map((run) => {
       const item = { id: integer(run.id), status: member(run.status, states), conclusion: member(run.conclusion, conclusions, true) };
       label(item, 'name', run.name, limits, secrets);
@@ -113,8 +115,10 @@ export function sanitizePublicRead(action, raw, limits, sensitive = []) {
     }),
   }));
   result.workflows = list(raw.workflows, limits.max_freeze_shas).map((group) => ({ sha: sha(group.sha),
+    selection: member(group.selection, ['latest_per_workflow_event']),
+    observed_run_count: integer(group.observed_run_count, limits.max_freeze_history_items, 0),
     runs: list(group.runs, limits.max_workflow_runs).map((run) => {
-      const item = { id: integer(run.id), status: member(run.status, states), conclusion: member(run.conclusion, conclusions, true),
+      const item = { id: integer(run.id), workflow_id: integer(run.workflow_id), status: member(run.status, states), conclusion: member(run.conclusion, conclusions, true),
         event: run.event, run_number: integer(run.run_number), run_attempt: integer(run.run_attempt), head_sha: sha(run.head_sha) };
       invariant(typeof run.event === 'string' && /^[a-z_]{1,60}$/.test(run.event), 'PUBLIC_READ_RESULT_UNSAFE', 'Invalid event metadata');
       invariant(item.head_sha === group.sha, 'PUBLIC_READ_RESULT_UNSAFE', 'Workflow run is not scoped to the exact SHA');
@@ -123,6 +127,15 @@ export function sanitizePublicRead(action, raw, limits, sensitive = []) {
       return item;
     }),
   }));
+  for (const group of result.checks) {
+    invariant(group.observed_check_run_count >= group.check_runs.length && group.observed_status_count >= group.statuses.length,
+      'PUBLIC_READ_RESULT_UNSAFE', 'Check history coverage count is invalid');
+  }
+  for (const group of result.workflows) {
+    invariant(group.observed_run_count >= group.runs.length
+      && new Set(group.runs.map((run) => `${run.workflow_id}:${run.event}`)).size === group.runs.length,
+      'PUBLIC_READ_RESULT_UNSAFE', 'Workflow history coverage or latest identity is invalid');
+  }
   for (const [key, included] of [['checks', result.includes.checks], ['workflows', result.includes.workflows]]) {
     invariant(included ? canonicalSerialize(result[key].map((item) => item.sha).sort()) === canonicalSerialize([...result.relevant_shas].sort()) : result[key].length === 0,
       'PUBLIC_READ_RESULT_UNSAFE', 'Exact-SHA evidence coverage is incomplete');

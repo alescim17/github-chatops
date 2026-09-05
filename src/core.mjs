@@ -243,7 +243,11 @@ function receiptBody(sourceCommentId, command, status, result) {
     status,
   });
   const safeResult = result === undefined ? null : result;
-  return `${marker}\n**RepoRelay ${status}** — \`${command?.action || 'unknown'}\` on \`${command?.repository || 'unknown'}\`\n\n\`request_id: ${command?.request_id || 'unknown'}\`\n\n\`\`\`json\n${JSON.stringify(safeResult, null, 2).slice(0, 12000)}\n\`\`\``;
+  // Typed read envelopes are byte-bounded and validated by the runner. Never
+  // slice a successful authoritative result; mutation receipts keep their format.
+  const typedRead = ['read.capabilities', 'read.freeze', 'read.query'].includes(command?.action);
+  const resultJson = typedRead ? JSON.stringify(safeResult) : JSON.stringify(safeResult, null, 2).slice(0, 12000);
+  return `${marker}\n**RepoRelay ${status}** — \`${command?.action || 'unknown'}\` on \`${command?.repository || 'unknown'}\`\n\n\`request_id: ${command?.request_id || 'unknown'}\`\n\n\`\`\`json\n${resultJson}\n\`\`\``;
 }
 
 export async function findReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, requestId) {

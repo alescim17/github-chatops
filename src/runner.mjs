@@ -22,6 +22,8 @@ import {
   assertPrivateEnvelope,
 } from './relay.mjs';
 import { executeCommand } from './handlers/index.mjs';
+import { readLimits, PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTIONS } from './read-contract.mjs';
+import { publicSuccessResult, mutationReceiptResult as publicReceiptResult, privateReceiptBody, publicReadFailure } from './read-receipts.mjs';
 
 const eventPath = process.env.REPORELAY_EVENT_PATH || process.env.GITHUB_EVENT_PATH;
 const targetToken = process.env.REPORELAY_TARGET_TOKEN;
@@ -35,14 +37,19 @@ async function fetchPrivateCommand({ token, repository, sourceCommentId, actor, 
   const { owner, repo } = splitRepository(repository);
   const comment = await githubRequest(token, 'GET', `/repos/${owner}/${repo}/issues/comments/${id}`);
   invariant(comment?.user?.login === actor, 'PRIVATE_SOURCE_ACTOR_MISMATCH', 'Private source comment author is not the authorized command actor');
+  invariant(comment?.id === id, 'PRIVATE_SOURCE_COMMENT_INVALID', 'Private source comment identity differs');
+  privateIssuePath(comment, repository);
   const command = parseCommand(privateCommandBody(comment?.body), maxBytes);
   return { command, comment };
 }
 
-function privateIssuePath(comment) {
+function privateIssuePath(comment, repository) {
   try {
     const url = new URL(comment.issue_url);
-    invariant(/^\/repos\/[^/]+\/[^/]+\/issues\/\d+$/.test(url.pathname), 'PRIVATE_RECEIPT_TARGET_INVALID', 'Private source issue URL is invalid');
+    invariant(url.origin === 'https://api.github.com' && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname.startsWith(`/repos/${repository}/issues/`)
+      && /^\/repos\/[^/]+\/[^/]+\/issues\/\d+$/.test(url.pathname),
+    'PRIVATE_RECEIPT_TARGET_INVALID', 'Private source issue URL is invalid');
     return `${url.pathname}/comments`;
   } catch (error) {
     if (error instanceof RepoRelayError) throw error;
@@ -52,30 +59,17 @@ function privateIssuePath(comment) {
 
 async function writePrivateReceipt(token, sourceComment, command, status, result) {
   if (!sourceComment) return false;
-  const body = [
-    `<!-- reporelay-private-receipt request_id=${command.request_id} status=${status} -->`,
-    `**RepoRelay ${status}** — \`${command.action}\``,
-    '',
-    '```json',
-    JSON.stringify(result ?? null, null, 2).slice(0, 12000),
-    '```',
-  ].join('\n');
-  await githubRequest(token, 'POST', privateIssuePath(sourceComment), { body });
+  const body = privateReceiptBody(command, status, result, activeReadLimits);
+  await githubRequest(token, 'POST', privateIssuePath(sourceComment, privateTargetRepository), { body });
   return true;
-}
-
-function publicReceiptResult(status, privateReceipt, errorCode = undefined) {
-  return {
-    completed: status === 'SUCCESS',
-    private_receipt: privateReceipt === true,
-    ...(errorCode ? { code: errorCode } : {}),
-  };
 }
 
 let source;
 let command;
 let receipt;
 let privateSourceComment;
+let privateTargetRepository;
+let activeReadLimits;
 
 try {
   if (!eventPath) throw new RepoRelayError('EVENT_PATH_REQUIRED', 'Workflow event path is missing');
@@ -99,8 +93,10 @@ try {
     command: outerCommand,
   });
 
+  command = outerCommand;
   if (outerCommand.action === 'relay.private') {
     const targetRepository = resolveTargetRepository(outerCommand.repository, targetMap);
+    privateTargetRepository = targetRepository;
     const privateSource = await fetchPrivateCommand({
       token: targetToken,
       repository: targetRepository,
@@ -109,19 +105,22 @@ try {
       maxBytes: policy.limits.max_command_bytes,
     });
     privateSourceComment = privateSource.comment;
-    command = privateSource.command;
-    assertPrivateEnvelope(outerCommand, command);
+    const privateCommand = privateSource.command;
+    assertPrivateEnvelope(outerCommand, privateCommand);
     authorize({
       policy,
       actor: source.actor,
       controlRepository: source.controlRepository,
       controlIssue: source.controlIssue,
-      command,
+      command: privateCommand,
     });
+    command = privateCommand;
   } else {
     assertPublicActionAllowed(outerCommand.action);
     command = outerCommand;
   }
+
+  if ([...PUBLIC_READ_ACTIONS, ...PRIVATE_READ_ACTIONS].includes(command.action)) activeReadLimits = readLimits(policy);
 
   const existing = await findReceipt(
     controlToken,
@@ -148,7 +147,7 @@ try {
 
   const targetRepository = resolveTargetRepository(command.repository, targetMap);
   const executionCommand = { ...command, repository: targetRepository };
-  const result = await executeCommand(targetToken, policy, executionCommand);
+  const result = await executeCommand(targetToken, policy, executionCommand, { privateRelay: Boolean(privateSourceComment) });
 
   let privateReceipt = false;
   if (privateSourceComment) {
@@ -156,6 +155,7 @@ try {
       privateReceipt = await writePrivateReceipt(targetToken, privateSourceComment, command, 'SUCCESS', result);
     } catch {
       privateReceipt = false;
+      if (command.action === 'read.query') throw new RepoRelayError('PRIVATE_RECEIPT_WRITE_FAILED', 'Private read result was not delivered');
     }
   }
 
@@ -166,7 +166,7 @@ try {
     source.sourceCommentId,
     command,
     'SUCCESS',
-    publicReceiptResult('SUCCESS', privateReceipt),
+    publicSuccessResult(command, result, privateReceipt, activeReadLimits, [targetRepository, targetToken, controlToken, ...Object.values(targetMap)]),
   );
   console.log(JSON.stringify({ status: 'SUCCESS', request_id: command.request_id, action: command.action, target: command.repository }));
 } catch (error) {
@@ -176,9 +176,10 @@ try {
   const safeCode = internalResult.code || 'UNEXPECTED_ERROR';
   console.error(JSON.stringify({ status: 'FAILED', code: safeCode, request_id: command?.request_id || null, action: command?.action || null, target: command?.repository || null }));
 
+  let failurePrivateReceipt = false;
   if (privateSourceComment && command && targetToken) {
     try {
-      await writePrivateReceipt(targetToken, privateSourceComment, command, 'FAILED', internalResult);
+      failurePrivateReceipt = await writePrivateReceipt(targetToken, privateSourceComment, command, 'FAILED', internalResult);
     } catch {
       // The public receipt below is still authoritative for replay suppression.
     }
@@ -186,7 +187,11 @@ try {
 
   try {
     if (source?.controlRepository && source?.controlIssue && controlToken) {
-      const publicResult = publicReceiptResult('FAILED', Boolean(privateSourceComment), safeCode);
+      const publicResult = publicReceiptResult('FAILED', failurePrivateReceipt, safeCode);
+      if ([...PUBLIC_READ_ACTIONS, ...PRIVATE_READ_ACTIONS].includes(command?.action)) {
+        const guidance = publicReadFailure(error);
+        if (guidance) publicResult.read_retry = guidance;
+      }
       if (receipt?.id) {
         await updateReceipt(controlToken, source.controlRepository, receipt.id, source.sourceCommentId || 'unknown', command, 'FAILED', publicResult);
       } else {

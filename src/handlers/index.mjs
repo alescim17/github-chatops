@@ -4,9 +4,13 @@ import { handleIssueCreate, handleIssueUpdate, handleLabels, handleAssignees, ha
 import { handleWorkflowDispatch, handleWorkflowRunMutation, handleWorkflowJobRerun } from './workflow.mjs';
 import { handleBranchCreate, handleBranchUpdate, handleBranchDelete, handleMergedBranchDelete, handleAtomicCommit } from './git.mjs';
 import { handleAtomicPatch } from './patch.mjs';
+import { handleRead } from './read.mjs';
 
-export async function executeCommand(token, policy, command) {
+export async function executeCommand(token, policy, command, context = {}) {
   switch (command.action) {
+    case 'read.capabilities':
+    case 'read.freeze':
+    case 'read.query': return handleRead(token, policy, command, context);
     case 'pr.create': return handlePrCreate(token, command);
     case 'pr.update': return handlePrUpdate(token, command);
     case 'pr.ready': return setDraftState(token, command, true);

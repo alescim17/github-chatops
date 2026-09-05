@@ -1,155 +1,73 @@
 # RepoRelay
 
-RepoRelay is a repository-agnostic GitHub ChatOps control plane for deterministic, policy-gated repository mutations.
+RepoRelay is a repository-agnostic GitHub ChatOps control plane for deterministic, policy-gated mutations and typed authoritative fallback reads. Typed comments execute through GitHub Actions with a short-lived GitHub App installation token. The public control repository can operate allowlisted private targets without installing a workflow in each target.
 
-Commands are submitted as typed comments and executed through GitHub Actions with a short-lived GitHub App installation token.
+## Native-first authority
 
-```text
-operator / automation
-        ↓
-GitHub comment
-        ↓
-GitHub Actions
-        ↓
-GitHub App installation token
-        ↓
-allowlisted target repository
-```
+For ChatGPT Web / Codex Web, use **native GitHub reads first**, then exact native GitHub REST/resource reads when a wrapper is insufficient. Use RepoRelay read fallback only when native output is operationally unusable: omitted/Skipped/empty results, unconsultable resources, truncated authority, or output that cannot be carried into the next fenced operation. Only if native and RepoRelay reads both fail may an orchestrator declare READ_PLANE_BLOCKED.
 
-The control repository can be public while target repositories remain private. Target repositories do not need a RepoRelay workflow in the central-control model.
+Do NOT call RepoRelay reads if native GitHub already produced sufficient fresh authority, except for contradiction/recovery diagnostics. This avoids duplicate command-bus noise, Actions runs and latency.
 
-## Operator authority protocol
+RepoRelay remains the normal fenced **write/control plane** for configured targets regardless of which read path supplied authority. Native target writes require explicit owner recovery authorization; a read failure never silently changes write routing.
 
-ChatGPT/web orchestrators must use GitHub native access as the authoritative read plane and RepoRelay as the fenced write/control plane for configured target repositories. Every consequential mutation requires a fresh authoritative freeze, expected-state fences where supported, and GitHub-native read-after-write verification before the resulting state is considered complete.
+After each mutation, obtain a **new independent** native observation, an exact native REST observation, or, only if those are unusable, a new read.freeze with a new request_id. Mutation SUCCESS receipt != post-mutation state verification.
 
-A single connector-wrapper failure is not sufficient evidence that GitHub is unavailable, and `PRIVATE_RELAY_REQUIRED` is a policy decision rather than a RepoRelay outage. Native target writes are a recovery path only when explicitly authorized.
+The normative [operator protocol](docs/OPERATOR_PROTOCOL.md) defines the exact priorities, contradiction handling and eight-step Codex Web recovery recipe.
 
-See [`docs/OPERATOR_PROTOCOL.md`](docs/OPERATOR_PROTOCOL.md) for the normative orchestration protocol, including anti-false-blockage, contradiction handling, and final-state reporting rules.
+## Typed read surface
 
-## Command channels
+`read.capabilities` is public, metadata-only installed protocol discovery: versions, actions, query kinds, explicit limits and fallback/read-after-write support.
 
-RepoRelay supports two command paths.
+`read.freeze` is public, metadata-only authority: default/requested branch SHA/tree, PR head/base/lifecycle, Issue state, optional reviews and exact-SHA checks/workflows. The SUCCESS receipt contains the actual sanitized result, timestamps, stable=true and a canonical result_sha256. If authority moves during collection it fails READ_FREEZE_MOVED. It is a fresh GitHub-backed observation, not cached state or a reused mutation receipt.
 
-### Public metadata commands
+`read.query` is PRIVATE ONLY through `relay.private`. Its fixed typed kinds provide bounded repository, branch, commit, tree, UTF-8 file range, compare, search, Issue/PR/comment/review/thread/check and workflow/job/log/artifact-metadata reads. Direct public invocation fails PRIVATE_RELAY_REQUIRED before target content is fetched.
 
-Metadata-only operations may be posted directly to the public command-bus issue. Public receipts intentionally contain minimal execution metadata.
+Every successful read has a canonical JSON result digest and UTF-8 result byte count. Results exceeding max_read_result_bytes (10 KiB) fail READ_RESULT_TOO_LARGE with safe range/pagination guidance; authoritative read results are never silently sliced. Explicit requested pages/ranges identify any intentionally partial coverage. The digest is result identity, not a Git SHA.
 
-Allowed public actions include:
+See [typed read schemas and examples](docs/READ_PLANE.md).
 
-- `pr.ready`
-- `pr.draft`
-- `pr.merge`
-- `branch.delete_merged`
-- `workflow.rerun`
-- `workflow.rerun_failed`
-- `workflow.cancel`
-- `workflow.job.rerun`
+## Public/private channels
 
-### Private relay
+Direct public actions:
 
-Content-bearing or potentially sensitive operations use `relay.private`.
+- read.capabilities, read.freeze;
+- pr.ready, pr.draft, pr.merge, branch.delete_merged;
+- workflow.rerun, workflow.rerun_failed, workflow.cancel, workflow.job.rerun.
 
-1. Put the complete `/reporelay-private { ... }` command in an issue or PR comment inside the private target repository.
-2. Post a small `relay.private` envelope to the public command bus containing only the target alias, `request_id`, and private `source_comment_id`.
-3. RepoRelay fetches the private source comment with its GitHub App token, verifies the author and envelope binding, executes the command, and writes detailed evidence back to the private source conversation.
+Only the two public typed reads can put sanitized read data into public receipts. Existing mutation receipts remain minimal. Public read results exclude mapped private repository names, PR/Issue titles and bodies, comments/review text, file paths/source, logs/artifacts, credentials, emails and tokens. Unsafe free-form check/workflow labels are redacted with identity digests; exact sensitive labels require a private query.
 
-Example private command:
-
-```text
-/reporelay-private
-{"v":1,"request_id":"change-1","action":"git.commit.atomic","repository":"target/example","branch":"issue-42","expected_parent_sha":"<40-char-sha>","message":"fix: example","files":[{"path":"src/example.ts","content":"..."}]}
-```
-
-Public relay envelope:
+For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to permanent public Issue #3:
 
 ```text
 /reporelay
-{"v":1,"request_id":"change-1","action":"relay.private","repository":"target/example","source_comment_id":123456789}
+{"v":1,"request_id":"diagnostic-1","action":"relay.private","repository":"target/example","source_comment_id":123456789}
 ```
+
+The inner request_id and target alias must match. The runner verifies comment author and receipt destination. Private query results go only to that private conversation. Public query SUCCESS contains only completed, private_receipt, result_sha256, result_bytes and query_kind. A failed private read delivery is FAILED, never a successful but unavailable read result.
+
+Keep Issue #3 permanently OPEN and UNLOCKED. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
+
+## Mutation surface and fences
+
+Pull requests: pr.create/update/ready/draft/merge, reviewers, reviews and review-thread mutations. Issues/milestones: create/update, labels, assignees, locks, comments and milestone deletion. Actions: dispatch, rerun, rerun_failed, cancel and job rerun. Git: branch.create/update/delete/delete_merged, git.commit.atomic and git.patch.atomic.
+
+Example fenced merge:
+
+```text
+/reporelay
+{"v":1,"request_id":"merge-42","action":"pr.merge","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>","expected_base_sha":"<40-char-base-sha>","method":"squash"}
+```
+
+Atomic commits require expected_parent_sha and a non-force branch update. Atomic exact-text patches additionally read every source at that parent, require expected_blob_sha and an exact replacement expected_count, and validate all sources before creating replacement blobs. Both are private-only.
+
+Routine cleanup uses branch.delete_merged with a merged PR number and expected_head_sha. It derives the same-repository branch, verifies terminal merged state, unchanged head, non-default branch and absence of other open PR users before deleting it. Verify deletion independently afterward.
 
 ## Safety properties
 
-- typed, versioned JSON commands only
-- no arbitrary shell execution
-- no generic HTTP/API proxy
-- authenticated GitHub actor allowlist
-- target alias allowlist plus secret alias-to-repository mapping
-- write-ahead idempotency receipts with canonical command hashing
-- duplicate or changed intent fails closed
-- exact `expected_head_sha` fencing for Ready, Draft, Merge, and merged-branch cleanup
-- optional `expected_base_sha` merge fence
-- current exact-head check/status evidence required before merge
-- mergeability, review-decision, and unresolved-thread gates
-- PR head/base refetched immediately before merge
-- atomic multi-file commits use `expected_parent_sha` and non-force branch updates
-- atomic exact-text patches additionally require the expected blob SHA and expected replacement count for every touched file
-- direct default-branch commits and branch creation disabled by policy
-- privileged workflow dependencies pinned to reviewed full commit SHAs
-- public receipts do not expose private command results
+Typed/versioned commands; actor and target alias allowlists; secret alias mapping; canonical intent hashing and duplicate suppression; no arbitrary shell; no generic HTTP/API proxy or caller GraphQL; public/private payload separation; expected-head/base/parent/blob fences; current exact-head checks; mergeability/review/unresolved-thread gates; last-moment PR refetch; default-branch writes and force updates forbidden; pinned privileged Actions dependencies.
 
-## Command surface
+Read handlers use only target GETs and a fixed GraphQL QUERY with validated selectors, never target PUT/PATCH/DELETE or GraphQL mutation. Private command/receipt comments are separate transport operations. No App permission expansion is required.
 
-### Pull requests
+## Setup and validation
 
-- `pr.create`
-- `pr.update`
-- `pr.ready`
-- `pr.draft`
-- `pr.merge`
-- reviewer, review, and review-thread mutations
-
-### Issues and milestones
-
-- issue create/update
-- labels and assignees
-- lock/unlock
-- comments
-- milestone create/update/delete
-
-### Actions
-
-- workflow dispatch
-- rerun
-- rerun failed
-- cancel
-- job rerun
-
-### Git
-
-- `branch.create`
-- `branch.update`
-- `branch.delete`
-- `branch.delete_merged`
-- `git.commit.atomic`
-- `git.patch.atomic`
-
-`git.patch.atomic` modifies existing UTF-8 repository files without sending their full contents. Every file is read at `expected_parent_sha`, must match `expected_blob_sha`, and every exact `before` string must occur the declared `expected_count` before a single non-force commit is created.
-
-`branch.delete_merged` is the recommended post-merge cleanup path. It derives the branch from a merged PR and deletes it only when:
-
-- the PR is actually merged;
-- the PR head belongs to the same repository;
-- `expected_head_sha` matches the merged head;
-- the branch still points to that exact SHA;
-- the branch is not the default branch;
-- no other open PR uses the branch.
-
-Example:
-
-```text
-/reporelay
-{"v":1,"request_id":"cleanup-42","action":"branch.delete_merged","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>"}
-```
-
-## Example: fenced merge
-
-```text
-/reporelay
-{"v":1,"request_id":"merge-42","action":"pr.merge","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>","expected_base_sha":"<40-char-base-sha>","method":"merge"}
-```
-
-RepoRelay refetches live authority immediately before destructive or state-transitioning mutations and fails closed when preconditions change.
-
-## Setup
-
-See [`docs/GITHUB_APP.md`](docs/GITHUB_APP.md).
+See [GitHub App setup](docs/GITHUB_APP.md). Run `npm test` and `npm run check`; RepoRelay CI runs both. Existing mutation validation remains enabled alongside the typed-read security, race, transport and documentation tests.

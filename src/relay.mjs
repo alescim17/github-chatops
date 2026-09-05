@@ -1,6 +1,8 @@
 import { RepoRelayError, invariant } from './core.mjs';
 
 export const PUBLIC_ACTIONS = new Set([
+  'read.capabilities',
+  'read.freeze',
   'pr.ready',
   'pr.draft',
   'pr.merge',

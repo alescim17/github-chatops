@@ -92,6 +92,22 @@ Do NOT call RepoRelay read fallback unnecessarily.
 
 For the PUBLIC control repository only, direct public GitHub HTTPS/raw/API reads can recover protocol/code inspection when native output cannot be consulted. Do not depend on attachment paths or old local handoffs. This does not authorize public transport of private target content.
 
+## Exact-authority branch synchronization
+
+Use private-only `branch.merge.fenced` only when the owner authorized synchronization of an existing non-default branch. This does not authorize arbitrary product edits, PR Ready/merge, human approval, runner dispatch or deployment. Existing PR lifecycle and git.commit.atomic fences are unchanged. No App permission or PUBLIC_ACTIONS expansion is involved.
+
+The closed command schema is v, request_id, action, repository (target alias), branch, expected_sha, head_ref, expected_head_sha and message. Both expected SHAs must be full 40-character hexadecimal values. Branch selectors are short names of at most 200 safe ASCII characters; refs/... and the reserved reporelay-merge namespace are rejected. The merge message is nonblank UTF-8, at most 1000 bytes. Unknown fields, including caller-specified temporary refs, force, method, parents, tree, API path, URL, GraphQL and shell, fail before target access. The handler separately requires server-owned private-relay context; caller JSON cannot grant it.
+
+Freeze both refs and verify both existing commits in the canonical repository. Apply the existing branch write policy and always refuse default-branch targets. Before use, inspect push workflow filters in the target and head histories: internal temporary branches must not allocate expensive product runners. Do not assume an audit of main alone covers an older target history.
+
+The server generates a dedicated internal temporary branch from expected_sha, using authenticated intent hashing and a server nonce. The caller cannot select it. GitHub's fixed repository merge endpoint materializes the exact expected_head_sha on that temporary branch; no JavaScript merge algorithm or generic API proxy is exposed. Fetch the produced commit by SHA in the canonical repository and require a valid tree and exactly two parents: expected_sha first, expected_head_sha second. Divergent histories are required; already-merged/no-op and fast-forward results are rejected, never silently substituted.
+
+Delete the internal temporary ref and verify GET returns 404 before any real target mutation. On conflict or invalid merge, cleanup still runs. A cleanup failure fails closed and includes the generated temp_ref only in the private diagnostic for exact operator remediation. A failed creation never deletes a pre-existing colliding ref. Ambiguous API/network outcomes require independent read reconciliation rather than blind replay.
+
+After cleanup, reread the target and head_ref independently. Refuse movement with BRANCH_MERGE_TARGET_MOVED or BRANCH_MERGE_HEAD_MOVED. Then update the target to the verified merge SHA with force=false and verify it again. These are optimistic fences, not a cross-ref transaction or an atomic compare-and-swap guarantee. Concurrent movement after the final observations remains possible; non-force protects history, and independent post-write authority is mandatory. Never roll back or force a ref in response to a race.
+
+Follow POST-WRITE PRIORITY to inspect the actual commit parents/tree, target ref and current-main ancestry. Mutation SUCCESS alone is insufficient. The private result supplies branch, from, head_ref, head_sha, merge_sha, tree_sha and parents; the public mutation receipt exposes no source or detailed target data. If legitimately authorized main movement requires another sync, obtain new fences and a new request_id; never silently merge a newer ref or weaken an old fence. Keep the permanent command bus OPEN and UNLOCKED.
+
 ## Final-state reporting
 
 Derive the final state from the latest successful independent observation selected through the required priorities. Preserve target alias, operation, request ID, pre-state SHA/tree, fence values, terminal receipt, post-state SHA/tree, observation times and result digest. Earlier transient failures must not override later verified state.

@@ -253,10 +253,23 @@ function receiptBody(sourceCommentId, command, status, result) {
 export async function findReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, requestId) {
   const { owner, repo } = splitRepository(controlRepository);
   let page = 1;
+  let lastId = 0;
   const sourceNeedle = `source_comment_id=${sourceCommentId}`;
   const requestNeedle = requestId ? `request_id=${requestId}` : null;
-  while (page <= 10) {
+  // The permanent bus grows without rotation. Scan from its beginning until a
+  // match or an actual terminal page, not an arbitrary lifetime comment limit.
+  // GitHub orders issue comments by ascending ID. Fail closed on malformed or
+  // non-advancing pages; API errors/timeouts must never establish absence.
+  // Memory is bounded to one page; the workflow timeout bounds execution.
+  while (true) {
     const comments = await githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${page}`);
+    invariant(Array.isArray(comments) && comments.length <= 100,
+      'RECEIPT_PAGE_INVALID', 'Receipt scan returned an invalid comment page');
+    for (const comment of comments) {
+      invariant(Number.isSafeInteger(comment?.id) && comment.id > lastId,
+        'RECEIPT_SCAN_NOT_ADVANCING', 'Receipt scan comment IDs did not advance');
+      lastId = comment.id;
+    }
     const match = comments.find((comment) =>
       typeof comment.body === 'string' &&
       comment.body.includes('reporelay-receipt') &&
@@ -266,7 +279,6 @@ export async function findReceipt(controlToken, controlRepository, controlIssue,
     if (comments.length < 100) return null;
     page += 1;
   }
-  throw new RepoRelayError('RECEIPT_SCAN_LIMIT', 'Receipt scan exceeded 1000 comments');
 }
 
 export async function createReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, command, status, result) {

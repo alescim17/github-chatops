@@ -253,20 +253,45 @@ function receiptBody(sourceCommentId, command, status, result) {
 export async function findReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, requestId) {
   const { owner, repo } = splitRepository(controlRepository);
   let page = 1;
+  let lastId = 0;
+  const boundaries = [];
   const sourceNeedle = `source_comment_id=${sourceCommentId}`;
   const requestNeedle = requestId ? `request_id=${requestId}` : null;
-  while (page <= 10) {
-    const comments = await githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${page}`);
+  const readPage = (number) => githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${number}`);
+  // Scan the complete permanent history, not a recent window or lifetime cap.
+  // Keep one page of bodies and one numeric boundary ID per full page. The
+  // existing workflow timeout bounds execution; errors never prove absence.
+  while (true) {
+    const comments = await readPage(page);
+    invariant(Array.isArray(comments) && comments.length <= 100,
+      'RECEIPT_PAGE_INVALID', 'Receipt scan returned an invalid comment page');
+    for (const comment of comments) {
+      invariant(Number.isSafeInteger(comment?.id) && comment.id > lastId,
+        'RECEIPT_SCAN_NOT_ADVANCING', 'Receipt scan comment IDs did not advance');
+      lastId = comment.id;
+    }
     const match = comments.find((comment) =>
       typeof comment.body === 'string' &&
       comment.body.includes('reporelay-receipt') &&
       (comment.body.includes(sourceNeedle) || (requestNeedle && comment.body.includes(requestNeedle)))
     );
     if (match) return match;
-    if (comments.length < 100) return null;
+    if (comments.length < 100) {
+      // Ascending IDs alone do not detect a deletion moving an unread receipt
+      // onto an already-read page. Revalidate EVERY crossed page boundary
+      // after reaching the end. Since IDs are ascending and inserts append,
+      // a deletion causing such a gap permanently shifts a recorded boundary.
+      // Fail closed instead of authorizing execution from incomplete history.
+      for (let i = 0; i < boundaries.length; i += 1) {
+        const check = await readPage(i + 1);
+        invariant(Array.isArray(check) && check.length === 100 && check[99]?.id === boundaries[i],
+          'RECEIPT_HISTORY_MOVED', 'Receipt history page boundaries moved during lookup');
+      }
+      return null;
+    }
+    boundaries.push(lastId);
     page += 1;
   }
-  throw new RepoRelayError('RECEIPT_SCAN_LIMIT', 'Receipt scan exceeded 1000 comments');
 }
 
 export async function createReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, command, status, result) {

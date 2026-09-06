@@ -254,15 +254,15 @@ export async function findReceipt(controlToken, controlRepository, controlIssue,
   const { owner, repo } = splitRepository(controlRepository);
   let page = 1;
   let lastId = 0;
+  const boundaries = [];
   const sourceNeedle = `source_comment_id=${sourceCommentId}`;
   const requestNeedle = requestId ? `request_id=${requestId}` : null;
-  // The permanent bus grows without rotation. Scan from its beginning until a
-  // match or an actual terminal page, not an arbitrary lifetime comment limit.
-  // GitHub orders issue comments by ascending ID. Fail closed on malformed or
-  // non-advancing pages; API errors/timeouts must never establish absence.
-  // Memory is bounded to one page; the workflow timeout bounds execution.
+  const readPage = (number) => githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${number}`);
+  // Scan the complete permanent history, not a recent window or lifetime cap.
+  // Keep one page of bodies and one numeric boundary ID per full page. The
+  // existing workflow timeout bounds execution; errors never prove absence.
   while (true) {
-    const comments = await githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${page}`);
+    const comments = await readPage(page);
     invariant(Array.isArray(comments) && comments.length <= 100,
       'RECEIPT_PAGE_INVALID', 'Receipt scan returned an invalid comment page');
     for (const comment of comments) {
@@ -276,7 +276,20 @@ export async function findReceipt(controlToken, controlRepository, controlIssue,
       (comment.body.includes(sourceNeedle) || (requestNeedle && comment.body.includes(requestNeedle)))
     );
     if (match) return match;
-    if (comments.length < 100) return null;
+    if (comments.length < 100) {
+      // Ascending IDs alone do not detect a deletion moving an unread receipt
+      // onto an already-read page. Revalidate EVERY crossed page boundary
+      // after reaching the end. Since IDs are ascending and inserts append,
+      // a deletion causing such a gap permanently shifts a recorded boundary.
+      // Fail closed instead of authorizing execution from incomplete history.
+      for (let i = 0; i < boundaries.length; i += 1) {
+        const check = await readPage(i + 1);
+        invariant(Array.isArray(check) && check.length === 100 && check[99]?.id === boundaries[i],
+          'RECEIPT_HISTORY_MOVED', 'Receipt history page boundaries moved during lookup');
+      }
+      return null;
+    }
+    boundaries.push(lastId);
     page += 1;
   }
 }

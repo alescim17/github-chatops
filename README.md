@@ -49,7 +49,7 @@ Keep Issue #3 permanently OPEN and UNLOCKED. Private repository mappings belong 
 
 ## Mutation surface and fences
 
-Pull requests: pr.create/update/ready/draft/merge, reviewers, reviews and review-thread mutations. Issues/milestones: create/update, labels, assignees, locks, comments and milestone deletion. Actions: dispatch, rerun, rerun_failed, cancel and job rerun. Git: branch.create/update/delete/delete_merged, git.commit.atomic and git.patch.atomic.
+Pull requests: pr.create/update/ready/draft/merge, reviewers, reviews and review-thread mutations. Issues/milestones: create/update, labels, assignees, locks, comments and milestone deletion. Actions: dispatch, rerun, rerun_failed, cancel and job rerun. Git: branch.create/update/delete/delete_merged, private-only branch.merge.fenced, git.commit.atomic and git.patch.atomic.
 
 Example fenced merge:
 
@@ -61,6 +61,25 @@ Example fenced merge:
 Atomic commits require expected_parent_sha and a non-force branch update. Atomic exact-text patches additionally read every source at that parent, require expected_blob_sha and an exact replacement expected_count, and validate all sources before creating replacement blobs. Both are private-only.
 
 Routine cleanup uses branch.delete_merged with a merged PR number and expected_head_sha. It derives the same-repository branch, verifies terminal merged state, unchanged head, non-default branch and absence of other open PR users before deleting it. Verify deletion independently afterward.
+
+## Fenced history-preserving branch synchronization
+
+`branch.merge.fenced` is PRIVATE ONLY through `relay.private`; it is not in PUBLIC_ACTIONS. It synchronizes two exact, existing, divergent branch histories, not arbitrary merge automation or PR approval. The target must be a non-default branch in the resolved canonical repository.
+
+Stage this strict typed command in the target conversation, then send only its matching request_id, target alias and source_comment_id in a relay.private envelope to Issue #3:
+
+```text
+/reporelay-private
+{"v":1,"request_id":"sync-exact-1","action":"branch.merge.fenced","repository":"target/example","branch":"issue-7","expected_sha":"<40-character-target-sha>","head_ref":"main","expected_head_sha":"<40-character-head-sha>","message":"chore(sync): merge exact main authority"}
+```
+
+Only the shown fields are accepted. Both SHA selectors are full 40-character hexadecimal strings, normalized to lowercase. Branch selectors are bounded short branch names (not refs/heads/...); the internal reporelay-merge namespace is reserved. The UTF-8 message is nonblank and at most 1000 bytes. No caller temp ref, force, method, parents, tree, URL, REST path, GraphQL or shell is accepted.
+
+Before any mutation the handler applies branch policy, refuses a default-branch target, checks both live refs against the exact expected SHAs and verifies both commits in the canonical repository. It generates an internal `reporelay-merge/<intent-hash>-<server-nonce>` branch at expected_sha and uses GitHub's fixed server-side merge endpoint with the exact expected_head_sha, never a moving ref. The produced Git commit must have a valid tree and exactly two parents in target/head order. A conflict, no-op, fast-forward result, wrong parent or invalid identity fails closed.
+
+The internal ref is deleted and its absence verified BEFORE the final target/head rereads and the real target update. Cleanup failure prevents target mutation; an unreachable merge object is harmless. Final target or head movement is a specific error. The verified merge is installed with `force=false` and the resulting target ref is reread. The private result includes branch, from, head_ref, head_sha, merge_sha, tree_sha and parents; public mutation receipts remain minimal.
+
+Audit push branch filters at both starting histories before use: temporary branch creation and materialization must not start expensive validation. This primitive does not suppress workflows or grant runner execution authority. Fences are optimistic reads, not a GitHub cross-ref transaction or an atomic compare-and-swap; no force update or rollback is attempted. Independently verify refs, parents, tree and ancestry afterward; use a fresh request_id and fresh fences for any authorized resynchronization.
 
 ## Safety properties
 

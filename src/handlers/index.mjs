@@ -4,6 +4,7 @@ import { handleIssueCreate, handleIssueUpdate, handleLabels, handleAssignees, ha
 import { handleWorkflowDispatch, handleWorkflowRunMutation, handleWorkflowJobRerun } from './workflow.mjs';
 import { handleBranchCreate, handleBranchUpdate, handleBranchDelete, handleMergedBranchDelete, handleAtomicCommit } from './git.mjs';
 import { handleAtomicPatch } from './patch.mjs';
+import { handleBranchMergeFenced } from './branch-merge.mjs';
 import { handleRead } from './read.mjs';
 
 export async function executeCommand(token, policy, command, context = {}) {
@@ -40,6 +41,7 @@ export async function executeCommand(token, policy, command, context = {}) {
     case 'workflow.rerun_failed': return handleWorkflowRunMutation(token, command, 'rerun-failed-jobs');
     case 'workflow.cancel': return handleWorkflowRunMutation(token, command, 'cancel');
     case 'workflow.job.rerun': return handleWorkflowJobRerun(token, command);
+    case 'branch.merge.fenced': return handleBranchMergeFenced(token, policy, command, context);
     case 'branch.create': return handleBranchCreate(token, policy, command);
     case 'branch.update': return handleBranchUpdate(token, policy, command);
     case 'branch.delete': return handleBranchDelete(token, policy, command);

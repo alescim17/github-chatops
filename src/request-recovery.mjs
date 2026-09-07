@@ -1,12 +1,11 @@
 import { invariant, githubRequest, scanReceiptHistory } from './core.mjs';
 import { PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTIONS, READ_QUERY_KINDS } from './read-contract.mjs';
 
-// Public receipts are written by the control workflow's GITHUB_TOKEN, never
-// by the target App or by a human staging a command. Do not trust marker text.
-function trusted(comment) {
-  return comment?.user?.login === 'github-actions[bot]' && comment.user.id === 41898282
-    && comment.user.type === 'Bot' && comment.performed_via_github_app?.id === 15368;
-}
+import { isRepoRelayReceipt, isLegacyReceipt, verifyLegacyReceipt } from './receipt-authority.mjs';
+
+// A generic Actions writer is only a legacy candidate and requires additional
+// verified RepoRelay execution evidence before ANY recovery result can succeed.
+const trusted = comment => isRepoRelayReceipt(comment) || isLegacyReceipt(comment);
 const marker = /^<!-- reporelay-receipt source_comment_id=([1-9][0-9]*|dispatch-[1-9][0-9]*) request_id=([A-Za-z0-9._:-]{1,120}) action=([a-z][a-z0-9_.-]{1,80}) repository=(target\/[A-Za-z0-9._-]{1,100}) command_hash=([0-9a-f]{64}) status=(STARTED|SUCCESS|FAILED) -->$/;
 function timestamp(value) {
   invariant(typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value)
@@ -105,6 +104,17 @@ export async function lookupRequest(policy, command, context) {
     && Date.parse(current.receipt_updated_at) >= Date.parse(selected.receipt_updated_at)
     && (selected.status === 'STARTED' || current.status === selected.status),
   'RECEIPT_HISTORY_MOVED', 'Authoritative receipt identity or terminal state moved');
+  const metadata = isRepoRelayReceipt(currentComment)
+    ? integrityMetadata(currentComment, current)
+    : await verifyLegacyReceipt(policy, current, context);
+  if (isLegacyReceipt(currentComment)) {
+    const verified = await githubRequest(context.controlToken, 'GET',
+      `/repos/${context.controlRepository}/issues/comments/${selected.receipt_comment_id}`);
+    invariant(isLegacyReceipt(verified) && verified.id === currentComment.id
+      && verified.issue_url === currentComment.issue_url && verified.created_at === currentComment.created_at
+      && verified.updated_at === currentComment.updated_at && verified.body === currentComment.body,
+    'RECEIPT_HISTORY_MOVED', 'Receipt changed during legacy authority verification');
+  }
   return { ...base, observed_at: new Date().toISOString(), found: true, ...current,
-    terminal: current.status !== 'STARTED', ...integrityMetadata(currentComment, current) };
+    terminal: current.status !== 'STARTED', ...metadata };
 }

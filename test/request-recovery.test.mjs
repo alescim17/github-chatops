@@ -19,7 +19,7 @@ const canaries = ['PRIVATE_SOURCE_CANARY', 'private/file.mjs', 'owner/private-ta
 function receipt(id, status = 'SUCCESS', overrides = {}, envelope) {
   const intent = { ...original, ...overrides };
   const payload = envelope ?? (status === 'STARTED' ? { accepted: true, private_relay: true } : { completed: status === 'SUCCESS', private_receipt: true });
-  return { id, user: { login: 'github-actions[bot]', id: 41898282, type: 'Bot' }, performed_via_github_app: { id: 15368 },
+  return { id, user: { login: 'reporelay-control[bot]', id: 322612842, type: 'Bot' }, performed_via_github_app: { id: 4764725 },
     issue_url: issueUrl, created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:01Z',
     body: receiptMarker({ sourceCommentId: '900001', requestId: intent.request_id, action: intent.action, repository: intent.repository, status, hash: commandHash(intent) })
       + '\n**RepoRelay receipt**\n\n```json\n' + JSON.stringify(payload) + '\n```' };
@@ -143,7 +143,7 @@ test('exact receipt identity change is a history error', async t => {
   install(t, [receipt(1)], { exact: () => receipt(1, 'SUCCESS', { action: 'issue.create' }) });
   await assert.rejects(lookup, { code: 'RECEIPT_HISTORY_MOVED' });
 });
-test('human and target-App marker text cannot impersonate control receipts', async t => {
+test('human and unrelated-App marker text cannot impersonate RepoRelay receipts', async t => {
   const human = receipt(1); human.user = { login: 'alescim17', id: 106375165, type: 'User' };
   const app = receipt(2); app.performed_via_github_app.id = 999;
   install(t, [human, app]); assert.equal((await lookup()).result.found, false);

@@ -12,7 +12,7 @@ const lookup = { v: 1, request_id: 'runner-lookup', action: 'read.request', repo
 const original = { v: 1, request_id: 'runner-original', action: 'git.commit.atomic', repository: alias };
 function makeReceipt(id, command, status) {
   return { id, issue_url: `https://api.github.com/repos/${control}/issues/3`,
-    user: { login: 'github-actions[bot]', id: 41898282, type: 'Bot' }, performed_via_github_app: { id: 15368 },
+    user: { login: 'reporelay-control[bot]', id: 322612842, type: 'Bot' }, performed_via_github_app: { id: 4764725 },
     created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:01Z',
     body: receiptMarker({ sourceCommentId: '700001', requestId: command.request_id, action: command.action, repository: command.repository, hash: commandHash(command), status })
       + '\n```json\n' + JSON.stringify(status === 'STARTED' ? { accepted: true, private_relay: true } : { completed: status === 'SUCCESS', private_receipt: true, result: 'PRIVATE_MUTATION_CANARY' }) + '\n```' };
@@ -36,7 +36,7 @@ globalThis.fetch=async(input,init={})=>{
  const u=new URL(input),method=init.method||'GET',body=init.body?JSON.parse(init.body):null,page=Number(u.searchParams.get('page'));
  calls.push({path:u.pathname,page,method,body});
  if(u.origin!=='https://api.github.com'||!u.pathname.startsWith('/repos/alescim17/github-chatops/'))throw Error('Unexpected original-target I/O');
- if(init.headers.Authorization!=='Bearer fake-control')throw Error('Unexpected target credential use');
+ if(init.headers.Authorization!==(method==='GET'?'Bearer fake-control':'Bearer fake-target'))throw Error('Incorrect bus read/RepoRelay receipt credential');
  if(method==='GET'&&u.pathname==='/repos/alescim17/github-chatops/issues/3/comments'){
    if(u.searchParams.has('since'))throw Error('Recent-window scan forbidden');
    if(started&&mode==='api-error'&&page===11)return new Response('{}',{status:503});

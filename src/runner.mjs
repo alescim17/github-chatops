@@ -28,6 +28,10 @@ import { publicSuccessResult, mutationReceiptResult as publicReceiptResult, priv
 const eventPath = process.env.REPORELAY_EVENT_PATH || process.env.GITHUB_EVENT_PATH;
 const targetToken = process.env.REPORELAY_TARGET_TOKEN;
 const controlToken = process.env.REPORELAY_CONTROL_TOKEN || process.env.GITHUB_TOKEN;
+// The already-installed RepoRelay App is the receipt authority. A different
+// workflow with issues:write receives a generic GITHUB_TOKEN, not this identity.
+// Bus reads keep the narrow control token; receipt writes use existing App rights.
+const receiptToken = targetToken;
 const dispatchCommand = process.env.REPORELAY_DISPATCH_COMMAND;
 const targetMapRaw = process.env.REPORELAY_TARGETS_JSON;
 
@@ -136,7 +140,7 @@ try {
   }
 
   receipt = await createReceipt(
-    controlToken,
+    receiptToken,
     source.controlRepository,
     source.controlIssue,
     source.sourceCommentId,
@@ -163,7 +167,7 @@ try {
   }
 
   await updateReceipt(
-    controlToken,
+    receiptToken,
     source.controlRepository,
     receipt.id,
     source.sourceCommentId,
@@ -189,16 +193,16 @@ try {
   }
 
   try {
-    if (source?.controlRepository && source?.controlIssue && controlToken) {
+    if (source?.controlRepository && source?.controlIssue && receiptToken) {
       const publicResult = publicReceiptResult('FAILED', failurePrivateReceipt, safeCode);
       if ([...PUBLIC_READ_ACTIONS, ...PRIVATE_READ_ACTIONS].includes(command?.action)) {
         const guidance = publicReadFailure(error);
         if (guidance) publicResult.read_retry = guidance;
       }
       if (receipt?.id) {
-        await updateReceipt(controlToken, source.controlRepository, receipt.id, source.sourceCommentId || 'unknown', command, 'FAILED', publicResult);
+        await updateReceipt(receiptToken, source.controlRepository, receipt.id, source.sourceCommentId || 'unknown', command, 'FAILED', publicResult);
       } else {
-        await createReceipt(controlToken, source.controlRepository, source.controlIssue, source.sourceCommentId || 'unknown', command, 'FAILED', publicResult);
+        await createReceipt(receiptToken, source.controlRepository, source.controlIssue, source.sourceCommentId || 'unknown', command, 'FAILED', publicResult);
       }
     }
   } catch {

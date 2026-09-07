@@ -499,7 +499,7 @@ export async function handleRead(token, policy, command, context = {}) {
       limits, supports_fallback_freeze: true, supports_read_after_write_freeze: true }, limits), limits);
   }
   if (command.action === 'read.request') {
-    const result = await lookupRequest(policy, command, context);
+    const result = await lookupRequest(policy, command, { ...context, proofToken: token, targetRepository: command.repository });
     return sealReadResult(sanitizePublicRead(command.action, result, limits,
       [token, context.controlToken, command.repository]), limits);
   }

@@ -1,7 +1,7 @@
 import { invariant, githubRequest, scanReceiptHistory } from './core.mjs';
 import { PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTIONS, READ_QUERY_KINDS } from './read-contract.mjs';
 
-import { isRepoRelayReceipt, isLegacyReceipt, verifyLegacyReceipt } from './receipt-authority.mjs';
+import { isRepoRelayReceipt, isRepoRelayReceiptContinuation, isLegacyReceipt, verifyLegacyReceipt } from './receipt-authority.mjs';
 
 // A generic Actions writer is only a legacy candidate and requires additional
 // verified RepoRelay execution evidence before ANY recovery result can succeed.
@@ -16,8 +16,8 @@ function positive(value) {
   invariant(Number.isSafeInteger(value) && value > 0, 'REQUEST_RECEIPT_INVALID', 'Invalid receipt identity');
   return value;
 }
-function matchingReceipt(comment, requestId, issueUrl) {
-  if (!trusted(comment) || typeof comment.body !== 'string') return null;
+function matchingReceipt(comment, requestId, issueUrl, authority = trusted) {
+  if (!authority(comment) || typeof comment.body !== 'string') return null;
   const first = comment.body.split('\n', 1)[0];
   if (!first.startsWith('<!-- reporelay-receipt ')) return null;
   const claimed = first.match(/(?:^| )request_id=([^ ]+)(?= |$)/)?.[1];
@@ -82,7 +82,7 @@ export async function lookupRequest(policy, command, context) {
     && /^target\/[A-Za-z0-9._-]{1,100}$/.test(context.targetAlias),
   'READ_REQUEST_CONTEXT_INVALID', 'Request recovery requires the permanent control-bus context');
   const issueUrl = `https://api.github.com/repos/${context.controlRepository}/issues/${context.controlIssue}`;
-  let selected = null;
+  let selected = null, selectedComment = null;
   await scanReceiptHistory(context.controlToken, context.controlRepository, context.controlIssue, comments => {
     for (const comment of comments) {
       const candidate = matchingReceipt(comment, command.lookup_request_id, issueUrl);
@@ -90,24 +90,32 @@ export async function lookupRequest(policy, command, context) {
       invariant(candidate.repository === context.targetAlias, 'REQUEST_TARGET_MISMATCH', 'Request belongs to another target alias');
       invariant(selected === null, 'REQUEST_ID_AMBIGUOUS', 'Multiple authoritative receipts claim this request identity');
       selected = candidate;
+      selectedComment = comment;
     }
   }, { complete: true });
   const base = { schema_version: 1, observed_at: new Date().toISOString(),
     lookup_request_id: command.lookup_request_id, repository: context.targetAlias };
   if (!selected) return { ...base, found: false };
+  // Anchor the authority class to the complete-history view, never an optional
+  // exact-endpoint projection or a substituted generic Actions identity.
+  const appAuthority = isRepoRelayReceipt(selectedComment);
   // STARTED is updated in place. Read the exact comment AFTER the complete scan.
   // A deleted/unreadable receipt is an error, never NOT_FOUND or inferred success.
   const currentComment = await githubRequest(context.controlToken, 'GET',
     `/repos/${context.controlRepository}/issues/comments/${selected.receipt_comment_id}`);
-  const current = matchingReceipt(currentComment, command.lookup_request_id, issueUrl);
+  const current = matchingReceipt(currentComment, command.lookup_request_id, issueUrl, comment =>
+    appAuthority ? isRepoRelayReceiptContinuation(selectedComment, comment) : isLegacyReceipt(comment));
   invariant(current && identity(current) === identity(selected)
     && Date.parse(current.receipt_updated_at) >= Date.parse(selected.receipt_updated_at)
-    && (selected.status === 'STARTED' || current.status === selected.status),
+    && (selected.status === 'STARTED' || current.status === selected.status)
+    // Only STARTED -> terminal can change the authenticated receipt body.
+    && ((selected.status === 'STARTED' && current.status !== 'STARTED')
+      || currentComment.body === selectedComment.body),
   'RECEIPT_HISTORY_MOVED', 'Authoritative receipt identity or terminal state moved');
-  const metadata = isRepoRelayReceipt(currentComment)
+  const metadata = appAuthority
     ? integrityMetadata(currentComment, current)
     : await verifyLegacyReceipt(policy, current, context);
-  if (isLegacyReceipt(currentComment)) {
+  if (!appAuthority) {
     const verified = await githubRequest(context.controlToken, 'GET',
       `/repos/${context.controlRepository}/issues/comments/${selected.receipt_comment_id}`);
     invariant(isLegacyReceipt(verified) && verified.id === currentComment.id

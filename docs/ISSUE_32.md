@@ -46,6 +46,21 @@ Native connector reads, using a different credential, showed App ID 4764725 in
 both views. Their harmless `client_id` projection difference alone did NOT prove
 the bug. The actual workflow-token diagnostic above is the root-cause evidence.
 
+## Test-first proof on unchanged R1 production sources
+
+Before the production correction, commit
+`7ec4ef6505c6f8470510b5baefd0d03e46dc56f5` added the real `action: created`
+issue-comment event shape to the isolated subprocess fixture. RepoRelay CI run
+https://github.com/alescim17/github-chatops/actions/runs/34108902084
+(job `101700269734`, Node 22.23.2) executed the complete `npm test` suite:
+378 tests, 362 passed, 16 failed, zero skipped. All pre-existing tests passed.
+The canonical R2 fixture and both actual `src/runner.mjs` subprocess cases
+failed with `RECEIPT_HISTORY_MOVED`, not an event/setup failure. This verifies
+that endpoint-projection regressions fail on installed R1 behavior.
+The red checkpoint also exposes terminal body replacement and authority-class
+switch cases that the continuity correction must reject. The 54 new behavior
+tests remain unchanged when applying the production fix.
+
 ## Security boundary and state contract
 
 Writer authority and state continuity are separate. A NEW App receipt still

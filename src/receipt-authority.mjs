@@ -7,6 +7,19 @@ export function isRepoRelayReceipt(comment) {
   return comment?.user?.login === 'reporelay-control[bot]' && comment.user.id === 322612842
     && comment.user.type === 'Bot' && comment.performed_via_github_app?.id === 4764725;
 }
+// This is continuity of an already authenticated receipt, NOT writer authority.
+export function isRepoRelayReceiptContinuation(previous, current) {
+  // Actual control-token exact GETs can project the same App comment with app=null.
+  // Never permit absent initial proof or an explicit contradictory exact App ID.
+  if (!isRepoRelayReceipt(previous)) return false;
+  return current?.user?.login === previous.user.login && current.user.id === previous.user.id
+    && current.user.type === previous.user.type && current.user.node_id === previous.user.node_id
+    && (current.performed_via_github_app == null || isRepoRelayReceipt(current))
+    && current.id === previous.id && current.node_id === previous.node_id
+    && current.url === previous.url && current.issue_url === previous.issue_url
+    && current.created_at === previous.created_at;
+}
+
 export function isLegacyReceipt(comment) {
   return comment?.user?.login === 'github-actions[bot]' && comment.user.id === 41898282
     && comment.user.type === 'Bot' && comment.performed_via_github_app?.id === 15368;

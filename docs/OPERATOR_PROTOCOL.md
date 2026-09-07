@@ -66,6 +66,22 @@ Use a new request_id for every fresh observation. Duplicate suppression is not a
 
 Use every supported expected-state fence: expected_parent_sha for atomic commits/patches, expected_head_sha for PR transitions/merge/merged-branch cleanup, expected_base_sha for merge, expected_sha for branch updates/deletion, and expected_blob_sha plus expected_count for exact patches. A fence failure requires re-freezing, not removing or changing a fence merely to make the action pass.
 
+## RepoRelay write-surface preflight (ChatGPT web)
+
+Before declaring RepoRelay write unavailable in a ChatGPT web/web-orchestrator session:
+
+1. Discover GitHub actions matching `comment`.
+2. Require a top-level Issue/PR comment creation action, normally `GitHub.add_comment_to_issue`.
+3. If it is not exposed, repeat discovery matching `issue`.
+4. Classify the failure precisely:
+   - `WRITE_TOOL_NOT_EXPOSED`: no suitable comment-creation action exists in the current session tool surface;
+   - `WRITE_PERMISSION_DENIED`: the comment action exists but GitHub rejects an actual invocation;
+   - `REPORELAY_REJECTED`: staging succeeded, the command reached permanent Issue #3, and RepoRelay returned `FAILED`.
+
+A missing session tool is not a RepoRelay outage and does not invalidate `REPORELAY_GLOBAL_READY=YES`. Do not search for a separate RepoRelay plugin/tool: the normal RepoRelay write transport is GitHub comments. When comment creation is available, stage `/reporelay-private` on the target Issue/PR and post the matching `/reporelay` envelope to Issue #3. If a submitted request's immediate payload is lost, recover the original `request_id` with `read.request` and fresh native GitHub state reads; never blindly replay the original mutation.
+
+This rule applies to every configured target. This repository's own alias is `target/reporelay`. Issue #3 MUST remain OPEN and UNLOCKED.
+
 ## Writes and private transport
 
 Native read degradation does NOT authorize native writes to configured targets. RepoRelay remains required for those mutations unless the owner explicitly authorizes a narrowly scoped recovery exception. A one-time RepoRelay self-upgrade exception must not be generalized to StreamForge, Aether, Home Assistant or other targets.

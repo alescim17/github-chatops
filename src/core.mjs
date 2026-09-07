@@ -245,18 +245,16 @@ function receiptBody(sourceCommentId, command, status, result) {
   const safeResult = result === undefined ? null : result;
   // Typed read envelopes are byte-bounded and validated by the runner. Never
   // slice a successful authoritative result; mutation receipts keep their format.
-  const typedRead = ['read.capabilities', 'read.freeze', 'read.query'].includes(command?.action);
+  const typedRead = ['read.capabilities', 'read.freeze', 'read.request', 'read.query'].includes(command?.action);
   const resultJson = typedRead ? JSON.stringify(safeResult) : JSON.stringify(safeResult, null, 2).slice(0, 12000);
   return `${marker}\n**RepoRelay ${status}** — \`${command?.action || 'unknown'}\` on \`${command?.repository || 'unknown'}\`\n\n\`request_id: ${command?.request_id || 'unknown'}\`\n\n\`\`\`json\n${resultJson}\n\`\`\``;
 }
 
-export async function findReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, requestId) {
+export async function scanReceiptHistory(controlToken, controlRepository, controlIssue, visit, { complete = false } = {}) {
   const { owner, repo } = splitRepository(controlRepository);
   let page = 1;
   let lastId = 0;
   const boundaries = [];
-  const sourceNeedle = `source_comment_id=${sourceCommentId}`;
-  const requestNeedle = requestId ? `request_id=${requestId}` : null;
   const readPage = (number) => githubRequest(controlToken, 'GET', `/repos/${owner}/${repo}/issues/${controlIssue}/comments?per_page=100&page=${number}`);
   // Scan the complete permanent history, not a recent window or lifetime cap.
   // Keep one page of bodies and one numeric boundary ID per full page. The
@@ -270,12 +268,8 @@ export async function findReceipt(controlToken, controlRepository, controlIssue,
         'RECEIPT_SCAN_NOT_ADVANCING', 'Receipt scan comment IDs did not advance');
       lastId = comment.id;
     }
-    const match = comments.find((comment) =>
-      typeof comment.body === 'string' &&
-      comment.body.includes('reporelay-receipt') &&
-      (comment.body.includes(sourceNeedle) || (requestNeedle && comment.body.includes(requestNeedle)))
-    );
-    if (match) return match;
+    const match = visit(comments);
+    if (match && !complete) return match;
     if (comments.length < 100) {
       // Ascending IDs alone do not detect a deletion moving an unread receipt
       // onto an already-read page. Revalidate EVERY crossed page boundary
@@ -286,12 +280,41 @@ export async function findReceipt(controlToken, controlRepository, controlIssue,
         const check = await readPage(i + 1);
         invariant(Array.isArray(check) && check.length === 100 && check[99]?.id === boundaries[i],
           'RECEIPT_HISTORY_MOVED', 'Receipt history page boundaries moved during lookup');
+        if (complete) {
+          let previous = 0;
+          for (const item of check) {
+            invariant(Number.isSafeInteger(item?.id) && item.id > previous,
+              'RECEIPT_SCAN_NOT_ADVANCING', 'Receipt verification IDs did not advance');
+            previous = item.id;
+          }
+        }
+      }
+      if (complete) {
+        // Public recovery also proves a stable terminal page, including appends.
+        // A timeout/API failure or moving tail must never become NOT_FOUND.
+        const tail = await readPage(page);
+        invariant(Array.isArray(tail) && tail.length <= 100,
+          'RECEIPT_PAGE_INVALID', 'Receipt verification returned an invalid page');
+        invariant(tail.length === comments.length && tail.every((item, i) => item?.id === comments[i].id),
+          'RECEIPT_HISTORY_MOVED', 'Receipt history terminal page moved during lookup');
       }
       return null;
     }
     boundaries.push(lastId);
     page += 1;
   }
+}
+
+export async function findReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, requestId) {
+  return scanReceiptHistory(controlToken, controlRepository, controlIssue, comments => comments.find(comment => {
+    if (typeof comment.body !== 'string') return false;
+    const marker = comment.body.match(/^<!-- reporelay-receipt ([^\r\n]*?) -->/);
+    if (!marker) return false;
+    const fields = marker[1].split(/ +/);
+    // Exact fields, never request-id/source-id prefixes or quoted payload text.
+    return fields.includes(`source_comment_id=${sourceCommentId}`)
+      || Boolean(requestId && fields.includes(`request_id=${requestId}`));
+  }));
 }
 
 export async function createReceipt(controlToken, controlRepository, controlIssue, sourceCommentId, command, status, result) {

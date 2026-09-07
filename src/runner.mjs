@@ -147,7 +147,10 @@ try {
 
   const targetRepository = resolveTargetRepository(command.repository, targetMap);
   const executionCommand = { ...command, repository: targetRepository };
-  const result = await executeCommand(targetToken, policy, executionCommand, { privateRelay: Boolean(privateSourceComment) });
+  const result = await executeCommand(targetToken, policy, executionCommand, {
+    privateRelay: Boolean(privateSourceComment), targetAlias: command.repository,
+    controlToken, controlRepository: source.controlRepository, controlIssue: source.controlIssue,
+  });
 
   let privateReceipt = false;
   if (privateSourceComment) {

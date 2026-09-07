@@ -7,6 +7,8 @@ import {
   resultDigest, sealReadResult, tooLarge, lineRange, bodyResult,
 } from '../read-contract.mjs';
 import { sanitizePublicRead } from '../read-receipts.mjs';
+import { installedCapabilities } from './index.mjs';
+import { lookupRequest } from '../request-recovery.mjs';
 
 function object(value) {
   invariant(value && typeof value === 'object' && !Array.isArray(value), 'READ_UPSTREAM_SHAPE_INVALID', 'Expected a GitHub object');
@@ -493,8 +495,13 @@ export async function handleRead(token, policy, command, context = {}) {
   if (command.action === 'read.capabilities') {
     return sealReadResult(sanitizePublicRead(command.action, { schema_version: 1,
       observed_at: new Date().toISOString(), read_plane_version: READ_PLANE_VERSION,
-      public_read_actions: [...PUBLIC_READ_ACTIONS], private_read_actions: [...PRIVATE_READ_ACTIONS], read_query_kinds: [...READ_QUERY_KINDS],
+      ...installedCapabilities(), transport_actions: ['relay.private'], read_query_kinds: [...READ_QUERY_KINDS],
       limits, supports_fallback_freeze: true, supports_read_after_write_freeze: true }, limits), limits);
+  }
+  if (command.action === 'read.request') {
+    const result = await lookupRequest(policy, command, context);
+    return sealReadResult(sanitizePublicRead(command.action, result, limits,
+      [token, context.controlToken, command.repository]), limits);
   }
   const client = new ReadClient(token, command.repository, limits);
   if (command.action === 'read.freeze') return freeze(client, command, limits, token);

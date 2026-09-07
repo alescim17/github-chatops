@@ -1,16 +1,10 @@
 import { RepoRelayError, invariant } from './core.mjs';
 
+import { installedCapabilities } from './handlers/index.mjs';
+
+const capabilities = installedCapabilities();
 export const PUBLIC_ACTIONS = new Set([
-  'read.capabilities',
-  'read.freeze',
-  'pr.ready',
-  'pr.draft',
-  'pr.merge',
-  'branch.delete_merged',
-  'workflow.rerun',
-  'workflow.rerun_failed',
-  'workflow.cancel',
-  'workflow.job.rerun',
+  ...capabilities.public_read_actions, ...capabilities.public_mutation_actions,
 ]);
 
 export function loadTargetMap(raw) {

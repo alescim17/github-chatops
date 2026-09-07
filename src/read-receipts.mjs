@@ -1,4 +1,5 @@
 import { invariant } from './core.mjs';
+import { installedCapabilities } from './handlers/index.mjs';
 import {
   READ_PLANE_VERSION, PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTIONS, READ_QUERY_KINDS, READ_LIMIT_KEYS,
   canonicalSerialize, resultDigest, verifyReadResult, integer, sha, refName,
@@ -51,6 +52,10 @@ export function sanitizePublicRead(action, raw, limits, sensitive = []) {
   invariant(PUBLIC_READ_ACTIONS.includes(action), 'PUBLIC_READ_RESULT_UNSAFE', 'Only public typed reads may publish results');
   invariant(raw?.schema_version === 1, 'PUBLIC_READ_RESULT_UNSAFE', 'Unsupported public read result schema');
   if (action === 'read.capabilities') {
+    const capabilities = installedCapabilities();
+    invariant(Object.entries(capabilities).every(([key, value]) => canonicalSerialize(raw[key]) === canonicalSerialize(value))
+      && canonicalSerialize(raw.transport_actions) === canonicalSerialize(['relay.private']),
+    'PUBLIC_READ_RESULT_UNSAFE', 'Capabilities differ from executable dispatcher registration');
     invariant(raw.read_plane_version === READ_PLANE_VERSION
       && canonicalSerialize(raw.public_read_actions) === canonicalSerialize(PUBLIC_READ_ACTIONS)
       && canonicalSerialize(raw.private_read_actions) === canonicalSerialize(PRIVATE_READ_ACTIONS)
@@ -58,10 +63,53 @@ export function sanitizePublicRead(action, raw, limits, sensitive = []) {
     'PUBLIC_READ_RESULT_UNSAFE', 'Invalid installed read capabilities');
     const safeLimits = Object.fromEntries(READ_LIMIT_KEYS.map((key) => [key, integer(raw.limits?.[key])]));
     return { schema_version: 1, observed_at: timestamp(raw.observed_at), read_plane_version: READ_PLANE_VERSION,
-      public_read_actions: [...PUBLIC_READ_ACTIONS], private_read_actions: [...PRIVATE_READ_ACTIONS],
+      ...capabilities, transport_actions: ['relay.private'],
       read_query_kinds: [...READ_QUERY_KINDS], limits: safeLimits,
       supports_fallback_freeze: bool(raw.supports_fallback_freeze),
       supports_read_after_write_freeze: bool(raw.supports_read_after_write_freeze) };
+  }
+  if (action === 'read.request') {
+    invariant(typeof raw.lookup_request_id === 'string' && /^[A-Za-z0-9._:-]{1,120}$/.test(raw.lookup_request_id)
+      && safeText(raw.lookup_request_id, limits, secrets)
+      && typeof raw.repository === 'string' && /^target\/[A-Za-z0-9._-]{1,100}$/.test(raw.repository)
+      && safeText(raw.repository, limits, secrets),
+    'PUBLIC_READ_RESULT_UNSAFE', 'Invalid public request identity');
+    const result = { schema_version: 1, observed_at: timestamp(raw.observed_at),
+      lookup_request_id: raw.lookup_request_id, repository: raw.repository, found: bool(raw.found) };
+    if (!result.found) return result;
+    invariant(typeof raw.action === 'string' && /^[a-z][a-z0-9_.-]{1,80}$/.test(raw.action)
+      && safeText(raw.action, limits, secrets), 'PUBLIC_READ_RESULT_UNSAFE', 'Invalid request action metadata');
+    result.action = raw.action;
+    result.status = member(raw.status, ['STARTED', 'SUCCESS', 'FAILED']);
+    result.terminal = bool(raw.terminal);
+    invariant(result.terminal === (result.status !== 'STARTED'), 'PUBLIC_READ_RESULT_UNSAFE', 'Invalid terminal receipt state');
+    if (typeof raw.source_comment_id === 'string') {
+      invariant(/^dispatch-[1-9][0-9]{0,70}$/.test(raw.source_comment_id), 'PUBLIC_READ_RESULT_UNSAFE', 'Invalid dispatch receipt identity');
+      result.source_comment_id = raw.source_comment_id;
+    } else result.source_comment_id = integer(raw.source_comment_id);
+    result.receipt_comment_id = integer(raw.receipt_comment_id);
+    invariant(typeof raw.command_hash === 'string' && /^[0-9a-f]{64}$/.test(raw.command_hash),
+      'PUBLIC_READ_RESULT_UNSAFE', 'Invalid receipt command digest');
+    result.command_hash = raw.command_hash;
+    result.receipt_created_at = timestamp(raw.receipt_created_at);
+    result.receipt_updated_at = timestamp(raw.receipt_updated_at);
+    invariant(Date.parse(result.receipt_created_at) <= Date.parse(result.receipt_updated_at),
+      'PUBLIC_READ_RESULT_UNSAFE', 'Invalid receipt time order');
+    if (raw.private_receipt !== undefined) result.private_receipt = bool(raw.private_receipt);
+    if (raw.result_sha256 !== undefined || raw.result_bytes !== undefined || raw.query_kind !== undefined) {
+      invariant(isRead(result.action), 'PUBLIC_READ_RESULT_UNSAFE', 'Mutation details are not request recovery metadata');
+      if (raw.result_sha256 !== undefined || raw.result_bytes !== undefined) {
+        invariant(typeof raw.result_sha256 === 'string' && /^[0-9a-f]{64}$/.test(raw.result_sha256),
+          'PUBLIC_READ_RESULT_UNSAFE', 'Invalid typed-read result digest');
+        result.result_sha256 = raw.result_sha256;
+        result.result_bytes = integer(raw.result_bytes, Number.MAX_SAFE_INTEGER, 0);
+      }
+      if (raw.query_kind !== undefined) {
+        invariant(result.action === 'read.query', 'PUBLIC_READ_RESULT_UNSAFE', 'Unexpected query kind');
+        result.query_kind = member(raw.query_kind, READ_QUERY_KINDS);
+      }
+    }
+    return result;
   }
   invariant(raw.stable === true, 'PUBLIC_READ_RESULT_UNSAFE', 'Only a stable freeze may succeed');
   const result = { schema_version: 1,

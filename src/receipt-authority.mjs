@@ -1,4 +1,4 @@
-import { invariant, parseCommand, commandHash } from './core.mjs';
+import { invariant, parseCommand, commandHash, graphql } from './core.mjs';
 import { ReadClient } from './read-client.mjs';
 import { readLimits } from './read-contract.mjs';
 
@@ -18,6 +18,49 @@ export function isRepoRelayReceiptContinuation(previous, current) {
     && current.id === previous.id && current.node_id === previous.node_id
     && current.url === previous.url && current.issue_url === previous.issue_url
     && current.created_at === previous.created_at;
+}
+
+// REST App metadata identifies the creator, not the writer of later edits.
+// Bind the current body to its last editor on that exact GitHub comment node.
+// Opaque GraphQL actor IDs are compared within GraphQL, never guessed from REST.
+export async function verifyRepoRelayReceiptBody(previous, current, context) {
+  const canonicalUrl = `https://github.com/${context.controlRepository}/issues/${context.controlIssue}#issuecomment-${current.id}`;
+  unverified(isRepoRelayReceiptContinuation(previous, current)
+    && typeof current.node_id === 'string' && current.node_id.length > 0 && current.node_id.length <= 200
+    && current.url === `https://api.github.com/repos/${context.controlRepository}/issues/comments/${current.id}`
+    && current.html_url === canonicalUrl);
+  let data;
+  try {
+    data = await graphql(context.controlToken, `query RepoRelayReceiptBody($id: ID!) {
+      node(id: $id) { __typename ... on IssueComment {
+        id fullDatabaseId body createdAt updatedAt lastEditedAt url
+        issue { number repository { nameWithOwner } }
+        author { __typename ... on Bot { id } }
+        editor { __typename ... on Bot { id } }
+      } }
+    }`, { id: current.node_id });
+  } catch { unverified(false); } // Never expose GraphQL error payloads or bodies.
+  const node = data?.node;
+  unverified(node?.__typename === 'IssueComment' && node.id === current.node_id
+    && typeof node.fullDatabaseId === 'string' && node.fullDatabaseId === String(current.id)
+    && node.createdAt === current.created_at && node.updatedAt === current.updated_at
+    && node.body === current.body && node.url === canonicalUrl
+    && node.issue?.number === context.controlIssue
+    && node.issue.repository?.nameWithOwner === context.controlRepository);
+  const bot = actor => actor?.__typename === 'Bot' && typeof actor.id === 'string'
+    && actor.id.length > 0 && actor.id.length <= 200;
+  // The node's immutable author is already pinned by REST App creator authority
+  // and exact node/database/creation/issue binding above. Only that SAME actor
+  // may have last edited the body. Generic Actions cannot inherit this identity.
+  unverified(bot(node.author));
+  if (node.lastEditedAt === null) {
+    unverified(node.editor === null); // Both explicit nulls mean an unedited body.
+  } else {
+    unverified(typeof node.lastEditedAt === 'string' && Number.isFinite(Date.parse(node.lastEditedAt))
+      && Date.parse(node.lastEditedAt) >= Date.parse(node.createdAt)
+      && Date.parse(node.lastEditedAt) <= Date.parse(node.updatedAt)
+      && bot(node.editor) && node.editor.id === node.author.id);
+  }
 }
 
 export function isLegacyReceipt(comment) {

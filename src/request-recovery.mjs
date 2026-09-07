@@ -1,7 +1,7 @@
 import { invariant, githubRequest, scanReceiptHistory } from './core.mjs';
 import { PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTIONS, READ_QUERY_KINDS } from './read-contract.mjs';
 
-import { isRepoRelayReceipt, isRepoRelayReceiptContinuation, isLegacyReceipt, verifyLegacyReceipt } from './receipt-authority.mjs';
+import { isRepoRelayReceipt, isRepoRelayReceiptContinuation, verifyRepoRelayReceiptBody, isLegacyReceipt, verifyLegacyReceipt } from './receipt-authority.mjs';
 
 // A generic Actions writer is only a legacy candidate and requires additional
 // verified RepoRelay execution evidence before ANY recovery result can succeed.
@@ -112,6 +112,8 @@ export async function lookupRequest(policy, command, context) {
     && ((selected.status === 'STARTED' && current.status !== 'STARTED')
       || currentComment.body === selectedComment.body),
   'RECEIPT_HISTORY_MOVED', 'Authoritative receipt identity or terminal state moved');
+  // Authenticate every App body, including edits completed before the scan.
+  if (appAuthority) await verifyRepoRelayReceiptBody(selectedComment, currentComment, context);
   const metadata = appAuthority
     ? integrityMetadata(currentComment, current)
     : await verifyLegacyReceipt(policy, current, context);
@@ -122,6 +124,13 @@ export async function lookupRequest(policy, command, context) {
       && verified.issue_url === currentComment.issue_url && verified.created_at === currentComment.created_at
       && verified.updated_at === currentComment.updated_at && verified.body === currentComment.body,
     'RECEIPT_HISTORY_MOVED', 'Receipt changed during legacy authority verification');
+  } else {
+    const verified = await githubRequest(context.controlToken, 'GET',
+      `/repos/${context.controlRepository}/issues/comments/${selected.receipt_comment_id}`);
+    invariant(isRepoRelayReceiptContinuation(selectedComment, verified)
+      && verified.html_url === currentComment.html_url
+      && verified.updated_at === currentComment.updated_at && verified.body === currentComment.body,
+    'RECEIPT_HISTORY_MOVED', 'Receipt changed during App body authority verification');
   }
   return { ...base, observed_at: new Date().toISOString(), found: true, ...current,
     terminal: current.status !== 'STARTED', ...metadata };

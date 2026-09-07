@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { invariant, RepoRelayError } from './core.mjs';
 
-export const READ_PLANE_VERSION = '1.0.1';
-export const PUBLIC_READ_ACTIONS = Object.freeze(['read.capabilities', 'read.freeze']);
+export const READ_PLANE_VERSION = '1.1.0';
+export const PUBLIC_READ_ACTIONS = Object.freeze(['read.capabilities', 'read.freeze', 'read.request']);
 export const PRIVATE_READ_ACTIONS = Object.freeze(['read.query']);
 const BODY = ['body_start_line', 'body_end_line'];
 const PAGE = ['page', 'per_page'];
@@ -114,6 +114,14 @@ export function validateReadCommand(command, limits) {
     && /^[A-Za-z0-9._:-]{1,120}$/.test(command.request_id), 'READ_FIELD_INVALID', 'Invalid typed-read envelope');
   if (command.action === 'read.capabilities') {
     exactKeys(command, base);
+    return;
+  }
+  if (command.action === 'read.request') {
+    exactKeys(command, [...base, 'lookup_request_id']);
+    invariant(typeof command.lookup_request_id === 'string'
+      && /^[A-Za-z0-9._:-]{1,120}$/.test(command.lookup_request_id)
+      && command.lookup_request_id !== command.request_id,
+    'READ_REQUEST_ID_INVALID', 'lookup_request_id must be an exact distinct request identity');
     return;
   }
   if (command.action === 'read.freeze') {

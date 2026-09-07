@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { control, receiptId } from './r2-receipt.mjs';
+import { receiptBodyProof, assertBodyProofRequest, actionsActor } from './receipt-body-proof.mjs';
 
 // Loaded only into the isolated src/runner.mjs subprocess. No real credentials.
 if (process.env.REPORELAY_R2_HARNESS) {
@@ -14,6 +15,13 @@ if (process.env.REPORELAY_R2_HARNESS) {
     const url = new URL(input), method = init.method ?? 'GET';
     assert.equal(url.origin, 'https://api.github.com');
     calls.push({ path: url.pathname, method });
+    if (url.pathname === '/graphql') {
+      assert.equal(init.headers.Authorization, 'Bearer r2-fake-control');
+      assertBodyProofRequest(init, config.exact);
+      const data = receiptBodyProof(config.exact);
+      if (config.forgedEditor) data.node.editor = { ...actionsActor };
+      return json({ data });
+    }
     if (method === 'GET') {
       assert.equal(init.headers.Authorization, 'Bearer r2-fake-control');
       if (url.pathname === bus) {

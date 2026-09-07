@@ -190,7 +190,7 @@ for (const status of ['SUCCESS', 'FAILED']) {
       const eventPath = path.join(dir, 'event.json'), configPath = path.join(dir, 'config.json'), output = path.join(dir, 'output.json');
       const outer = { v: 1, request_id: 'r3-runner-recovery', action: 'read.request', repository: alias, lookup_request_id: requestId };
       const views = r2Views('STARTED'); views.exact = withState(views.exact, status);
-      fs.writeFileSync(eventPath, JSON.stringify({ repository: { full_name: control }, issue: { number: 3 },
+      fs.writeFileSync(eventPath, JSON.stringify({ action: 'created', repository: { full_name: control }, issue: { number: 3 },
         comment: { id: 6000000001, body: '/reporelay ' + JSON.stringify(outer), user: { login: 'alescim17' } } }));
       fs.writeFileSync(configPath, JSON.stringify({ ...views, output }));
       const root = fileURLToPath(new URL('../', import.meta.url));

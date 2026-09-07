@@ -107,7 +107,8 @@ export async function handleAtomicCommit(token, policy, command) {
       tree.push({ path: file.path, mode: '100644', type: 'blob', sha: null });
       continue;
     }
-    const blob = await githubRequest(token, 'POST', `/repos/${owner}/${repo}/git/blobs`, { content: file.content, encoding: 'utf-8' });
+    const encoding = file.encoding === 'base64' ? 'base64' : 'utf-8';
+    const blob = await githubRequest(token, 'POST', `/repos/${owner}/${repo}/git/blobs`, { content: file.content, encoding });
     tree.push({ path: file.path, mode: file.mode || '100644', type: 'blob', sha: blob.sha });
   }
   const newTree = await githubRequest(token, 'POST', `/repos/${owner}/${repo}/git/trees`, { base_tree: parentCommit.tree.sha, tree });

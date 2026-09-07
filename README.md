@@ -60,7 +60,7 @@ Example fenced merge:
 {"v":1,"request_id":"merge-42","action":"pr.merge","repository":"target/example","pr":42,"expected_head_sha":"<40-char-head-sha>","expected_base_sha":"<40-char-base-sha>","method":"squash"}
 ```
 
-Atomic commits require expected_parent_sha and a non-force branch update. Atomic exact-text patches additionally read every source at that parent, require expected_blob_sha and an exact replacement expected_count, and validate all sources before creating replacement blobs. Both are private-only.
+Atomic commits require expected_parent_sha and a non-force branch update. File content defaults to UTF-8; an exact file-level `encoding: "base64"` is passed through to GitHub's blob API, while other encoding values and unrelated file metadata do not change the UTF-8 default. Atomic exact-text patches additionally read every source at that parent, require expected_blob_sha and an exact replacement expected_count, and validate all sources before creating replacement blobs. Both are private-only.
 
 Routine cleanup uses branch.delete_merged with a merged PR number and expected_head_sha. It derives the same-repository branch, verifies terminal merged state, unchanged head, non-default branch and absence of other open PR users before deleting it. Verify deletion independently afterward.
 

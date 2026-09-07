@@ -53,3 +53,34 @@ jobs:
           REPORELAY_CONTROL_TOKEN: ${{ github.token }}
           REPORELAY_TARGETS_JSON: ${{ secrets.REPORELAY_TARGETS_JSON }}
         run: node src/runner.mjs
+
+  diagnose-writer-update:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'alescim17/github-chatops' &&
+      github.ref == 'refs/heads/issue-32' &&
+      github.actor == 'reporelay-control[bot]' &&
+      inputs.command == 'r3-writer-probe-m8q2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Create existing RepoRelay installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.REPORELAY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.REPORELAY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-statuses: read
+          permission-workflows: write
+      - name: Probe only fixed non-receipt Issue32 comment writer authority
+        env:
+          R3_CONTROL_TOKEN: ${{ github.token }}
+          R3_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node scripts/r3-writer-probe.mjs

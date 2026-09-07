@@ -134,6 +134,53 @@ test('git.commit.atomic rejects unsupported Git tree modes before blob creation'
   assert.equal(calls, 1);
 });
 
+test('git.commit.atomic honors explicit base64 and ignores unsupported encoding metadata', async (t) => {
+  const originalFetch = global.fetch;
+  const blobBodies = [];
+  global.fetch = async (url, options = {}) => {
+    const value = String(url);
+    const method = options.method || 'GET';
+    if (value.endsWith('/repos/owner/private-target')) {
+      return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200 });
+    }
+    if (value.endsWith('/git/ref/heads/issue-x')) {
+      return new Response(JSON.stringify({ object: { sha: 'a'.repeat(40) } }), { status: 200 });
+    }
+    if (value.endsWith(`/git/commits/${'a'.repeat(40)}`)) {
+      return new Response(JSON.stringify({ tree: { sha: 't'.repeat(40) } }), { status: 200 });
+    }
+    if (method === 'POST' && value.endsWith('/git/blobs')) {
+      blobBodies.push(JSON.parse(options.body));
+      return new Response(JSON.stringify({ sha: `${blobBodies.length}`.repeat(40) }), { status: 201 });
+    }
+    if (method === 'POST' && value.endsWith('/git/trees')) {
+      return new Response(JSON.stringify({ sha: 'c'.repeat(40) }), { status: 201 });
+    }
+    if (method === 'POST' && value.endsWith('/git/commits')) {
+      return new Response(JSON.stringify({ sha: 'd'.repeat(40) }), { status: 201 });
+    }
+    if (method === 'PATCH' && value.endsWith('/git/refs/heads/issue-x')) {
+      return new Response(JSON.stringify({ object: { sha: 'd'.repeat(40) } }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  const result = await executeCommand('token', policy, {
+    action: 'git.commit.atomic', repository, branch: 'issue-x', expected_parent_sha: 'a'.repeat(40), message: 'x',
+    files: [
+      { path: 'base64.txt', content: 'Y2lhbw==', encoding: 'base64', transport_hint: 'ignored' },
+      { path: 'text.txt', content: 'ciao', encoding: 'rot13', transport_hint: 'ignored' },
+    ],
+  });
+
+  assert.equal(result.committed, true);
+  assert.deepEqual(blobBodies, [
+    { content: 'Y2lhbw==', encoding: 'base64' },
+    { content: 'ciao', encoding: 'utf-8' },
+  ]);
+});
+
 test('pr.merge requires at least one exact-head check or status evidence item', async (t) => {
   const originalFetch = global.fetch;
   let mergePutSeen = false;

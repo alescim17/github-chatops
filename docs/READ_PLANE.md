@@ -11,7 +11,9 @@ All commands use v=1, a fresh bounded request_id, a policy-allowlisted `target/<
 {"v":1,"request_id":"read-capabilities-unique","action":"read.capabilities","repository":"target/example"}
 ```
 
-Capabilities contain schema_version, observed_at, read_plane_version, public_read_actions, private_read_actions, read_query_kinds, limits, supports_fallback_freeze and supports_read_after_write_freeze. No target repository mappings or private content appear.
+Capabilities contain schema_version, observed_at, read_plane_version, public_read_actions, private_read_actions, public_mutation_actions, private_mutation_actions, transport_actions, read_query_kinds, limits, supports_fallback_freeze and supports_read_after_write_freeze. The four action lists are projected from the same immutable executable registry used by the dispatcher and public-channel guard. The serializer rejects a matrix inconsistent with that registration. transport_actions separately identifies the runner relay.private envelope. Every installed mutation is discoverable, including private comment/Issue/PR/review/milestone operations, workflow dispatch, atomic commits/patches and fenced branch merge; discovery does not authorize their execution. No target repository mappings or private content appear.
+
+Read plane 1.1.0 is an additive extension of 1.0.1: command v=1 and result schema_version=1 are unchanged; prior read actions/selectors and mutation channel/authorization boundaries are unchanged. Consumers must tolerate the newly documented capability fields/action. Request lookup is available only after installation, not merely because candidate source exists.
 
 ```text
 /reporelay
@@ -25,6 +27,64 @@ The public result contains observed_at_start/end, stable=true, repository.defaul
 Checks contain latest app/name identities and id/status/conclusion; statuses contain latest context/state/id and combined_status. RepoRelay scans the complete bounded GitHub history across pages before selecting these identities: GitHub filter=latest alone does not deduplicate separate historical check suites. Check groups include observed_check_run_count and observed_status_count. Workflow groups explicitly declare selection=latest_per_workflow_event and observed_run_count; each returned latest workflow/event identity contains workflow_id/id/name/status/conclusion/event/run_number/run_attempt/head_sha. Every distinct workflow/event is represented; older executions of that same identity are history, not current snapshot authority. Use private workflow.runs pages for historical runs. If the full source scan, distinct latest identities or complete canonical result exceed their respective bounds, the read fails; no unseen pages are silently omitted. Unknown/pending mergeability is preserved, not asserted mergeable.
 
 All authority is collected twice. A difference in default/requested branches, PR metadata/head/base/update marker, Issue metadata/update marker or requested review/check/workflow evidence fails READ_FREEZE_MOVED with safe before/after snapshot digests. This detects observed movement; it is not a transactional lock or a guarantee against undetectable ABA changes. A timestamp is observation evidence only, never a promise about future state.
+
+## Public request recovery — read.request
+
+Submit exactly these five fields to permanent Issue #3:
+
+```text
+/reporelay
+{"v":1,"request_id":"lookup-unique","action":"read.request","repository":"target/example","lookup_request_id":"original-request-id"}
+```
+
+Both IDs use 1-120 characters from A-Z, a-z, digits, period, underscore, colon and hyphen. lookup_request_id must differ from request_id. No query string, arbitrary URL/path/API selector, caller control token/context, or alternate bus is accepted. The usual actor and alias policy still applies: PUBLIC describes metadata/channel safety, not anonymous authorization. The runner supplies the permanent control repository/Issue and control token independently of command JSON and binds the expected original alias before exposing matching metadata.
+
+The successful result is one of these schema_version=1 variants, inside the usual sealed result/result_sha256/result_bytes envelope:
+
+```typescript
+type RequestNotFound = {
+  schema_version: 1;
+  observed_at: string; // UTC ISO timestamp
+  lookup_request_id: string;
+  repository: string; // exact target/<alias>, never mapped full name
+  found: false;
+};
+type RequestFound = {
+  schema_version: 1;
+  observed_at: string;
+  lookup_request_id: string;
+  repository: string;
+  found: true;
+  action: string;
+  status: 'STARTED' | 'SUCCESS' | 'FAILED';
+  terminal: boolean; // exactly status !== STARTED
+  source_comment_id: number | string; // positive safe integer, or legacy dispatch-<run-id>
+  receipt_comment_id: number; // positive safe integer
+  command_hash: string; // 64 lowercase hexadecimal characters
+  receipt_created_at: string; // UTC ISO timestamp
+  receipt_updated_at: string; // UTC ISO timestamp, >= created
+  private_receipt?: boolean; // included only when delivery indicator is known
+  result_sha256?: string; // original typed-read digest only
+  result_bytes?: number; // original typed-read byte count, nonnegative safe integer
+  query_kind?: string; // only the allowlisted kind of an original read.query
+};
+```
+
+Optional digest/byte fields describe the ORIGINAL read result; the outer lookup envelope separately identifies the lookup result. private_relay in STARTED does not prove private receipt delivery, so no delivery indicator is fabricated. read.request never fetches private receipt bodies, source commands, target files, PR/Issue bodies, comments, logs, credentials or mutation results. It copies only allowlisted primitive fields from the authenticated PUBLIC receipt envelope, validates them again through public serialization, and drops nested result/error/payload fields. Mutation receipts never contribute result digests or query metadata. Results remain bounded to 10,240 canonical UTF-8 bytes.
+
+### Complete-history authority
+
+The shared #29 scanner pages the permanent bus with per_page=100 and no since filter or lifetime page/comment ceiling. It validates array shape and strictly increasing safe-integer IDs. The ordinary idempotency finder retains early receipt suppression; read.request uses complete mode, scanning even after a match so later conflicting identities cannot be missed. It retains a page of bodies, one boundary ID per full page and at most one candidate. Before returning success OR absence, every full-page boundary is re-read and checked; the terminal page is re-read and its IDs/length must be unchanged. API failures and workflow timeout never prove absence. Freeze/query max_read_page/max_read_requests/max_freeze_history_items do not cap permanent-bus recovery history.
+
+Only a first-line public receipt marker written by the control workflow GitHub Actions identity (github-actions[bot], actor ID 41898282, type Bot, GitHub Actions App ID 15368) is authoritative; copied/human/target-App marker text and private-receipt markers cannot impersonate it. Matching is by an exact request-id field, not a substring/prefix. A matching trusted malformed/legacy receipt fails explicitly rather than being treated as missing. Two matching authoritative receipt comments are conservatively ambiguous even if some fields agree; no comment is selected arbitrarily.
+
+After a unique target-bound match and complete stable scan, read.request GETs that exact receipt comment again. Immutable request/source/comment/action/alias/hash/creation identity must agree; update time cannot go backward and terminal SUCCESS/FAILED cannot regress or switch. A prior STARTED may advance to SUCCESS/FAILED in place. The exact current comment, not workflow conclusion, determines status. This is an observed snapshot, not a lock or a guarantee against subsequent changes; a new lookup request_id is required for another observation.
+
+### Fail-closed recovery and replay
+
+RECEIPT_PAGE_INVALID, RECEIPT_SCAN_NOT_ADVANCING, RECEIPT_HISTORY_MOVED and GITHUB_API_ERROR preserve failure rather than returning found=false. REQUEST_TARGET_MISMATCH rejects a request belonging to another alias without returning that alias or metadata. REQUEST_ID_AMBIGUOUS rejects duplicate identities. REQUEST_RECEIPT_INVALID rejects malformed matching receipt metadata/envelopes. READ_REQUEST_ID_INVALID rejects invalid/self-referential selectors; READ_REQUEST_CONTEXT_INVALID rejects missing or incorrect server-owned bus context. Unknown fields are READ_FIELDS_UNKNOWN. Public errors remain codes/safe guidance, never private error details.
+
+A stable found=false is not proof of non-execution: a source may be queued, a receipt may have been deleted, or execution/receipt delivery may be uncertain. Reconcile exact source/run/target evidence before retrying a mutation. STARTED is not proof that a mutation has not happened, and FAILED may follow a partially completed external operation. Never automatically replay the original action. Lookup uses its own normal intent hash/idempotency; re-submitting that identical lookup request is DUPLICATE_SUPPRESSED and does not execute the original command or mutate its receipt.
 
 ## Private query
 

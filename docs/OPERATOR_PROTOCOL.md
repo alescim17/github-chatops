@@ -28,6 +28,18 @@ Do NOT call RepoRelay reads if native GitHub already produced sufficient fresh a
 
 Mutation SUCCESS receipt != post-mutation state verification.
 
+## Session-independent request recovery
+
+A missing, Skipped, truncated or lost immediate tool payload does NOT prove that a submitted command failed or that no read/mutation occurred. Retain a ledger of request_id, public source/envelope comment ID, private staging comment ID when applicable, authoritative receipt ID/status, and independently observed target state. Never report NOT_VERIFIED as evidence of non-execution.
+
+Discover the installed protocol using live `read.capabilities`. From read plane 1.1.0 it reports public_read_actions, private_read_actions, public_mutation_actions, private_mutation_actions and transport_actions from executable registration. Do not infer installed write capability from source code, a branch, a Draft PR or an old receipt. Discovery does not grant authority to execute any listed mutation.
+
+When the receipt itself is unavailable to the session, use public `read.request` with a fresh request_id, exact lookup_request_id and the expected original repository alias. Its authoritative status is the current public receipt state, not a workflow conclusion: STARTED is in-flight/unknown completion, SUCCESS and FAILED are terminal receipt states. A replay of the lookup is suppressed and is not a fresh observation; polling requires a new lookup request_id. Never replay the original mutation to recover its result.
+
+`found=false` means no matching authoritative receipt was observed in a stable complete bus scan. It does NOT prove that an accepted command has not started, that a receipt was never deleted, or that the target was not modified. Inspect the source comment and workflow evidence and reconcile actual target state before any retry. API/network errors, invalid pagination, history movement, malformed matching receipts, target mismatch and request identity ambiguity are typed failures, never absence. See [READ_PLANE.md](READ_PLANE.md) for the exact schema and failure codes.
+
+Until read.request is installed, recover by exact native reads of the recorded source comment, relevant Issue #3 comments located from fresh issue metadata or the source timestamp, exact receipt comment IDs, and associated workflow run when needed. Search exact request_id; do not guess that an empty wrapper or one incomplete page proves absence. Do not scan source code to decide whether a lost command executed. Native recovery and the new typed lookup both preserve the normal requirement for independent post-mutation target verification.
+
 ## Native-first selection
 
 Start with native GitHub for branches, commits, trees, files, Issues, PRs, reviews, comments, exact-head checks/statuses, workflow runs/jobs/logs and RepoRelay receipts. A complete, current, consultable native result is sufficient: use it without a redundant RepoRelay command or Actions run.
@@ -36,7 +48,7 @@ If a high-level wrapper rejects an argument, truncates data, returns ambiguous m
 
 Use the RepoRelay fallback only if the authority question remains operationally unanswerable: omitted/empty/Skipped output, no consultable payload, a result that cannot be propagated into the session, or incomplete SHA/tree/state after native retries. `read.capabilities` discovers the installed protocol; `read.freeze` supplies bounded metadata/fences; `read.query` via `relay.private` supplies private content and diagnostics.
 
-Successful typed reads are fresh GitHub-backed observations made directly using the installation token, not cached state, inferred state, or recycled mutation receipts. Request and result digests identify intent and result bytes respectively; neither is a Git object SHA.
+Successful typed reads are fresh GitHub-backed observations made directly using the installation token for target reads or the control token for request recovery, not cached state, inferred state, or recycled mutation receipts. Request and result digests identify intent and result bytes respectively; neither is a Git object SHA.
 
 A single Skipped message, discovery failure, wrapper failure, resource reference, truncated response or PRIVATE_RELAY_REQUIRED must never by itself become "GitHub unavailable". PRIVATE_RELAY_REQUIRED means use the private channel. READ_RESULT_TOO_LARGE means narrow the explicit page/range or freeze scope. READ_FREEZE_MOVED means re-observe, never weaken a fence.
 

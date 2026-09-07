@@ -16,7 +16,9 @@ The normative [operator protocol](docs/OPERATOR_PROTOCOL.md) defines the exact p
 
 ## Typed read surface
 
-`read.capabilities` is public, metadata-only installed protocol discovery: versions, actions, query kinds, explicit limits and fallback/read-after-write support.
+`read.capabilities` is public, metadata-only installed protocol discovery: versions, the complete public/private read/mutation action matrix derived from executable dispatcher registration, transport actions, query kinds, explicit limits and fallback/read-after-write support. Capability discovery is not mutation authorization.
+
+`read.request` (read plane 1.1.0, command schema v1) recovers the current authoritative public receipt for one exact `lookup_request_id` and expected target alias. It scans the entire permanent command-bus history, including beyond 1000 comments, rejects collisions or moving history, and re-reads the exact matched comment. Its bounded public result contains only identity/status/timestamps and optional safe read-result integrity metadata, never private query or mutation payloads. It never executes the original request. Lost tool output is not evidence of failure; use a new lookup request ID, then independently verify consequential target state.
 
 `read.freeze` is public, metadata-only authority: default/requested branch SHA/tree, PR head/base/lifecycle, Issue state, optional reviews and exact-SHA latest checks/workflow-event identities after a complete bounded paginated history scan. The SUCCESS receipt contains the actual sanitized result, timestamps, stable=true and a canonical result_sha256. If authority moves during collection it fails READ_FREEZE_MOVED. It is a fresh GitHub-backed observation, not cached state or a reused mutation receipt.
 
@@ -30,11 +32,11 @@ See [typed read schemas and examples](docs/READ_PLANE.md).
 
 Direct public actions:
 
-- read.capabilities, read.freeze;
+- read.capabilities, read.freeze, read.request;
 - pr.ready, pr.draft, pr.merge, branch.delete_merged;
 - workflow.rerun, workflow.rerun_failed, workflow.cancel, workflow.job.rerun.
 
-Only the two public typed reads can put sanitized read data into public receipts. Existing mutation receipts remain minimal. Public read results exclude mapped private repository names, PR/Issue titles and bodies, comments/review text, file paths/source, logs/artifacts, credentials, emails and tokens. Unsafe free-form check/workflow labels are redacted with identity digests; exact sensitive labels require a private query.
+Only public typed reads can put validated metadata into public receipts. Existing mutation receipts remain minimal. Public read results exclude mapped private repository names, PR/Issue titles and bodies, comments/review text, file paths/source, logs/artifacts, credentials, emails and tokens. Unsafe free-form check/workflow labels are redacted with identity digests; exact sensitive labels require a private query.
 
 For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to permanent public Issue #3:
 
@@ -85,7 +87,7 @@ Audit push branch filters at both starting histories before use: temporary branc
 
 Typed/versioned commands; actor and target alias allowlists; secret alias mapping; canonical intent hashing and duplicate suppression; no arbitrary shell; no generic HTTP/API proxy or caller GraphQL; public/private payload separation; expected-head/base/parent/blob fences; current exact-head checks; mergeability/review/unresolved-thread gates; last-moment PR refetch; default-branch writes and force updates forbidden; pinned privileged Actions dependencies.
 
-Read handlers use only target GETs and a fixed GraphQL QUERY with validated selectors, never target PUT/PATCH/DELETE or GraphQL mutation. Private command/receipt comments are separate transport operations. No App permission expansion is required.
+Read handlers use only GETs and a fixed GraphQL QUERY with validated selectors, never target PUT/PATCH/DELETE or GraphQL mutation. Request recovery uses only the control token and permanent-bus GETs; it never fetches the original private source comment or target content. Private command/receipt comments are separate transport operations. No App permission expansion is required.
 
 ## Setup and validation
 

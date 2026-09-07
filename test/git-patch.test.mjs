@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { ACTION_REGISTRY, executeCommand } from '../src/handlers/index.mjs';
 import { applyExactReplacements, handleAtomicPatch } from '../src/handlers/patch.mjs';
 
 const repository = 'owner/private-target';
@@ -9,9 +9,12 @@ const policy = {
   limits: { max_atomic_commit_files: 32, max_atomic_commit_bytes: 48000 },
 };
 
-test('git.patch.atomic is registered in the typed command dispatcher', () => {
-  const dispatcher = readFileSync(new URL('../src/handlers/index.mjs', import.meta.url), 'utf8');
-  assert.match(dispatcher, /case 'git\.patch\.atomic': return handleAtomicPatch/);
+test('git.patch.atomic is registered in the typed command dispatcher', async () => {
+  assert.equal(ACTION_REGISTRY['git.patch.atomic'].handler, handleAtomicPatch);
+  assert.equal(ACTION_REGISTRY['git.patch.atomic'].kind, 'mutation');
+  assert.equal(ACTION_REGISTRY['git.patch.atomic'].channel, 'private');
+  await assert.rejects(() => executeCommand('fake-token', policy, { action: 'git.patch.atomic' }),
+    error => error.code !== 'ACTION_UNSUPPORTED' && typeof error.code === 'string');
 });
 
 test('applyExactReplacements applies only the exact expected occurrence count', () => {

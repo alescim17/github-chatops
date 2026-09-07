@@ -53,19 +53,3 @@ jobs:
           REPORELAY_CONTROL_TOKEN: ${{ github.token }}
           REPORELAY_TARGETS_JSON: ${{ secrets.REPORELAY_TARGETS_JSON }}
         run: node src/runner.mjs
-
-  diagnose-r2-receipt:
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.repository == 'alescim17/github-chatops' &&
-      github.ref == 'refs/heads/issue-32' &&
-      github.actor == 'reporelay-control[bot]' &&
-      inputs.command == 'r3-r2-receipt-views-m8q2'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Compare fixed R2 receipt through installed control-token read path
-        env:
-          R3_DIAGNOSTIC_CONTROL_TOKEN: ${{ github.token }}
-        run: node test/diagnostics/r2-receipt-views.mjs

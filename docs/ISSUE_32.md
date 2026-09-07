@@ -59,7 +59,62 @@ failed with `RECEIPT_HISTORY_MOVED`, not an event/setup failure. This verifies
 that endpoint-projection regressions fail on installed R1 behavior.
 The red checkpoint also exposes terminal body replacement and authority-class
 switch cases that the continuity correction must reject. The 54 new behavior
-tests remain unchanged when applying the production fix.
+tests remained unchanged for the initial production correction; the P1 follow-up
+adds strict read-only proof plumbing and strengthens final-reread assertions.
+
+## Independent review P1 and current-body writer proof
+
+Independent review `5130681895`, comment `3948660168`, on candidate
+`c0a3c17f18d21cec528bafe503968f00a42d2a2a` identified a real P1: App creation
+identity alone does not authenticate an in-place STARTED-to-terminal body edit.
+The initial 378-green candidate was NOT accepted.
+
+A single harmless, marker-free comment on control Issue #32 (`5569031545`)
+was created through RepoRelay for an isolated writer-authority experiment.
+Run https://github.com/alescim17/github-chatops/actions/runs/34110216879
+(job `101704461566`) proved that the ordinary workflow control token could
+PATCH this probe with HTTP 200. The collection still had RepoRelay App authority;
+control-token exact view still had app=null; App-token exact view still had the
+original App authority. All retained the same immutable creator identity while
+the body changed. The existing App then restored the harmless probe to phase
+APP_UPDATED_PROBE_COMPLETE. No actual receipt or product comment was edited.
+This rules out simply using the App token for the exact reread as a P1 fix.
+
+A subsequent READ-ONLY run
+https://github.com/alescim17/github-chatops/actions/runs/34110633572
+(job `101705792639`) read GraphQL IssueComment metadata for the probe and
+original R2 receipt with both existing credentials. For all four views:
+node ID, fullDatabaseId, body, creation/update timestamps, URL and issue binding
+matched REST. fullDatabaseId was a string; lastEditedAt was a string equal to
+updatedAt. The diagnostic's guessed REST-style actor classification returned
+OTHER; it does not establish a REST-to-GraphQL actor encoding and none is used.
+A proposed additional diagnostic was tool-blocked and was NOT dispatched.
+All temporary diagnostic jobs/scripts are removed from the candidate.
+
+The correction verifies the current body of EVERY App receipt with a fixed
+read-only GraphQL node query using the same control token. The node must be the
+exact selected IssueComment, matching numeric ID, node ID, issue/repository,
+URL, full body and creation/update timestamps. Its immutable GraphQL author is
+already bound to the pinned REST App creator by that same physical comment.
+For an edited body, editor and author must both be Bot and have the SAME opaque
+GraphQL actor ID. No REST/GraphQL login or ID encoding is guessed. A generic
+Actions editor or another App cannot inherit the original creator's actor ID.
+An unedited body requires explicit null editor AND null lastEditedAt; missing
+proof is never success. Edit timestamps must fall within the receipt lifetime.
+GraphQL errors are sanitized to REQUEST_AUTHORITY_UNVERIFIED.
+
+A final exact REST reread must retain the authenticated identity/body/update
+snapshot after the GraphQL proof. Deletion, replacement or concurrent changes
+remain errors. This covers edits before the scan as well as STARTED advancement
+during the scan, without relaxing initial strict App authority or legacy proof.
+No token, permission, workflow permission or product access expansion is needed.
+
+The proof fixture keeps the live observed IssueComment shape/relations, including
+string fullDatabaseId and exact R2 node IDs. Opaque actor IDs are explicitly
+synthetic: only same-actor versus different-actor identity matters. Existing
+recovery test cases/assertions remain; their mocks add a strictly checked
+read-only GraphQL query and expect the additional final exact reread. The #29
+permanent history test files and their assertions are untouched.
 
 ## Security boundary and state contract
 
@@ -115,7 +170,9 @@ command hashes, timestamps and redacted SUCCESS envelopes are retained. Their
 null exact projections in tests model the proven control-token behavior; no
 additional product writes or claims of post-install commissioning are made.
 The isolated subprocess tests load actual `src/runner.mjs`, verify control-token
-GETs versus App-token new-lookup receipt writes, and forbid all other routes.
+GETs/read-only GraphQL versus App-token new-lookup receipt writes, and forbid all
+other routes. Generic Actions may never authenticate the current body of an
+App-created receipt merely because creator metadata remains unchanged.
 
 Candidate tests and CI are not post-install live commissioning. Global readiness
 remains NO until separate installation and four-target request recovery.

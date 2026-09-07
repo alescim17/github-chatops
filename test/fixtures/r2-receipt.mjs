@@ -58,7 +58,10 @@ export const r2Writes = [
 export function r2WriteViews([repository, short, id, source, created, updated, hash]) {
   const lookupId = `rr-r2-20260907-k7m4-${short}-write`;
   const collection = r2Views().collection;
-  delete collection.node_id; // not needed for these additional minimized vectors
+  // Native exact reads of the existing four R2 public receipts, not generated IDs.
+  collection.node_id = ({ 5567979951: 'IC_kwDOUIUQUs8AAAABS-Chrw',
+    5567981698: 'IC_kwDOUIUQUs8AAAABS-Cogg', 5567982987: 'IC_kwDOUIUQUs8AAAABS-Ctiw',
+    5567985401: 'IC_kwDOUIUQUs8AAAABS-C2-Q' })[id];
   Object.assign(collection, { id, url: `https://api.github.com/repos/${control}/issues/comments/${id}`,
     html_url: `https://github.com/${control}/issues/3#issuecomment-${id}`,
     created_at: `2026-09-07T${created}Z`, updated_at: `2026-09-07T${updated}Z`,

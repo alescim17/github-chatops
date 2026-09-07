@@ -6,6 +6,8 @@ import { readLimits, validateReadCommand, PUBLIC_READ_ACTIONS, PRIVATE_READ_ACTI
 import { assertPublicRead, publicSuccessResult } from '../src/read-receipts.mjs';
 import { PUBLIC_ACTIONS, assertPublicActionAllowed } from '../src/relay.mjs';
 
+import { receiptBodyProof, assertBodyProofRequest } from './fixtures/receipt-body-proof.mjs';
+
 const policy = await loadPolicy();
 const limits = readLimits(policy);
 const control = 'alescim17/github-chatops';
@@ -19,7 +21,11 @@ const canaries = ['PRIVATE_SOURCE_CANARY', 'private/file.mjs', 'owner/private-ta
 function receipt(id, status = 'SUCCESS', overrides = {}, envelope) {
   const intent = { ...original, ...overrides };
   const payload = envelope ?? (status === 'STARTED' ? { accepted: true, private_relay: true } : { completed: status === 'SUCCESS', private_receipt: true });
-  return { id, user: { login: 'reporelay-control[bot]', id: 322612842, type: 'Bot' }, performed_via_github_app: { id: 4764725 },
+  return { id, node_id: `fixture-comment-node-${id}`,
+    url: `https://api.github.com/repos/${control}/issues/comments/${id}`,
+    html_url: `https://github.com/${control}/issues/3#issuecomment-${id}`,
+    user: { login: 'reporelay-control[bot]', id: 322612842, type: 'Bot', node_id: 'BOT_kgDOEzquag' },
+    performed_via_github_app: { id: 4764725 },
     issue_url: issueUrl, created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:01Z',
     body: receiptMarker({ sourceCommentId: '900001', requestId: intent.request_id, action: intent.action, repository: intent.repository, status, hash: commandHash(intent) })
       + '\n**RepoRelay receipt**\n\n```json\n' + JSON.stringify(payload) + '\n```' };
@@ -28,9 +34,16 @@ const itemsOf = count => Array.from({ length: count }, (_, i) => ({ id: i + 1, b
 function install(t, items, options = {}) {
   const calls = [];
   const reads = new Map();
+  let lastExact;
   t.mock.method(globalThis, 'fetch', async (input, init) => {
     const url = new URL(input);
     assert.equal(url.origin, 'https://api.github.com');
+    if (url.pathname === '/graphql') {
+      assert.equal(init.headers.Authorization, 'Bearer fake-control', 'body proof uses only the control token');
+      assertBodyProofRequest(init, lastExact);
+      calls.push({ path: url.pathname, page: 0 });
+      return new Response(JSON.stringify({ data: receiptBodyProof(lastExact) }));
+    }
     assert.equal(init.method, 'GET', 'request recovery must never execute the original action');
     assert.equal(init.headers.Authorization, 'Bearer fake-control', 'target credentials must not be used for bus recovery');
     const page = Number(url.searchParams.get('page'));
@@ -46,6 +59,7 @@ function install(t, items, options = {}) {
     assert.ok(match, `unexpected target/source/workflow access: ${url.pathname}`);
     const id = Number(match[1]);
     const data = options.exact ? options.exact(id) : items.find(item => item.id === id);
+    lastExact = data;
     return data instanceof Response ? data : new Response(JSON.stringify(data));
   });
   return calls;

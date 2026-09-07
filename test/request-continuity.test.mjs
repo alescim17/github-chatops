@@ -10,6 +10,8 @@ import { lookupRequest } from '../src/request-recovery.mjs';
 import { isRepoRelayReceipt } from '../src/receipt-authority.mjs';
 import { control, alias, requestId, receiptId, resultSha256, r2Views, withState, r2Writes, r2WriteViews } from './fixtures/r2-receipt.mjs';
 
+import { receiptBodyProof, assertBodyProofRequest } from './fixtures/receipt-body-proof.mjs';
+
 const policy = await loadPolicy();
 const context = { controlRepository: control, controlIssue: 3, controlToken: 'r2-fake-control', targetAlias: alias };
 const command = { lookup_request_id: requestId };
@@ -21,6 +23,12 @@ function install(t, views, options = {}) {
   t.mock.method(globalThis, 'fetch', async (input, init = {}) => {
     const url = new URL(input);
     assert.equal(url.origin, 'https://api.github.com');
+    if (url.pathname === '/graphql') {
+      assert.equal(init.headers.Authorization, 'Bearer r2-fake-control');
+      assertBodyProofRequest(init, views.exact);
+      calls.push(url.pathname);
+      return new Response(JSON.stringify({ data: receiptBodyProof(views.exact) }));
+    }
     assert.equal(init.method, 'GET');
     assert.equal(init.headers.Authorization, 'Bearer r2-fake-control');
     calls.push(url.pathname);
@@ -48,7 +56,7 @@ test('R2 live regression: collection App metadata and exact null recover immutab
   assert.equal(result.receipt_comment_id, receiptId); assert.equal(result.source_comment_id, 5567819415);
   assert.equal(result.command_hash, '571ff150413c1a0712825baebba0cc4e4c4ba43ac53862e2d81b836ddcfe714d');
   assert.equal(result.result_sha256, resultSha256); assert.equal(result.result_bytes, 483);
-  assert.equal(result.result, undefined); assert.equal(calls.at(-1), exactPath); assert.equal(calls.length, 3);
+  assert.equal(result.result, undefined); assert.equal(calls.at(-1), exactPath); assert.equal(calls.length, 5);
 });
 for (const mode of ['absent-app', 'complete-app', 'client-id-only-absent', 'reverse-non-authority-metadata']) {
   test(`safe endpoint projection: ${mode}`, async t => {
@@ -205,8 +213,9 @@ for (const status of ['SUCCESS', 'FAILED']) {
       const envelope = JSON.parse(observed.receipt.body.match(/\n```json\n([\s\S]*)\n```$/)[1]);
       assert.equal(envelope.completed, true); assert.equal(envelope.result.status, status);
       assert.equal(envelope.result.terminal, true); assert.equal(envelope.result.receipt_comment_id, receiptId);
-      assert.ok(observed.calls.some(call => call.path === exactPath && call.method === 'GET'));
-      assert.deepEqual(observed.calls.filter(call => call.method !== 'GET').map(call => call.method), ['POST', 'PATCH']);
+      assert.equal(observed.calls.filter(call => call.path === exactPath && call.method === 'GET').length, 2);
+      assert.deepEqual(observed.calls.filter(call => call.path === '/graphql').map(call => call.method), ['POST']);
+      assert.deepEqual(observed.calls.filter(call => call.path !== '/graphql' && call.method !== 'GET').map(call => call.method), ['POST', 'PATCH']);
       assert.equal(run.stdout.includes('r2-fake-'), false); assert.equal(run.stderr.includes('r2-fake-'), false);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -221,6 +230,6 @@ for (const vector of r2Writes) {
     assert.equal(result.receipt_comment_id, vector[2]); assert.equal(result.source_comment_id, vector[3]);
     assert.equal(result.repository, vector[0]); assert.equal(result.command_hash, vector[6]);
     assert.equal(result.private_receipt, true); assert.equal(result.result, undefined);
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 5);
   });
 }

@@ -17,12 +17,16 @@ function makeReceipt(id, command, status) {
     body: receiptMarker({ sourceCommentId: '700001', requestId: command.request_id, action: command.action, repository: command.repository, hash: commandHash(command), status })
       + '\n```json\n' + JSON.stringify(status === 'STARTED' ? { accepted: true, private_relay: true } : { completed: status === 'SUCCESS', private_receipt: true, result: 'PRIVATE_MUTATION_CANARY' }) + '\n```' };
 }
-for (const mode of ['SUCCESS', 'FAILED', 'STARTED', 'missing', 'api-error', 'deletion', 'cross-target', 'conflict', 'replay']) {
+for (const mode of ['SUCCESS', 'FAILED', 'STARTED', 'missing', 'api-error', 'deletion', 'cross-target', 'conflict', 'forged-workflow', 'replay']) {
   test(`actual runner recovery ${mode} after 1000 comments never replays original`, t => {
     const dir = mkdtempSync(join(tmpdir(), 'reporelay-request-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
     const eventPath = join(dir, 'event.json'), outputPath = join(dir, 'calls.json'), preloadPath = join(dir, 'preload.mjs');
     const target = mode === 'cross-target' ? { ...original, repository: 'target/streamforge' } : original;
     const prior = makeReceipt(1001, target, ['SUCCESS', 'FAILED', 'STARTED'].includes(mode) ? mode : 'SUCCESS');
+    if (mode === 'forged-workflow') {
+      prior.user = { login: 'github-actions[bot]', id: 41898282, type: 'Bot' };
+      prior.performed_via_github_app = { id: 15368 };
+    }
     const duplicate = makeReceipt(1102, mode === 'replay' ? lookup : { ...original, action: 'issue.create' }, 'SUCCESS');
     writeFileSync(eventPath, JSON.stringify({ action: 'created', comment: { id: 900001, user: { login: 'alescim17' }, body: '/reporelay\n' + JSON.stringify(lookup) }, repository: { full_name: control }, issue: { number: 3 } }));
     writeFileSync(preloadPath, `import fs from 'node:fs';
@@ -36,7 +40,9 @@ globalThis.fetch=async(input,init={})=>{
  const u=new URL(input),method=init.method||'GET',body=init.body?JSON.parse(init.body):null,page=Number(u.searchParams.get('page'));
  calls.push({path:u.pathname,page,method,body});
  if(u.origin!=='https://api.github.com'||!u.pathname.startsWith('/repos/alescim17/github-chatops/'))throw Error('Unexpected original-target I/O');
- if(init.headers.Authorization!==(method==='GET'?'Bearer fake-control':'Bearer fake-target'))throw Error('Incorrect bus read/RepoRelay receipt credential');
+ const proofRead=u.pathname==='/repos/alescim17/github-chatops/issues/comments/700001';
+ if(init.headers.Authorization!==(method==='GET'&&!proofRead?'Bearer fake-control':'Bearer fake-target'))throw Error('Incorrect bus read/RepoRelay receipt credential');
+ if(method==='GET'&&proofRead)return new Response(JSON.stringify({id:700001,user:{login:'github-actions[bot]'},body:'forged-source'}));
  if(method==='GET'&&u.pathname==='/repos/alescim17/github-chatops/issues/3/comments'){
    if(u.searchParams.has('since'))throw Error('Recent-window scan forbidden');
    if(started&&mode==='api-error'&&page===11)return new Response('{}',{status:503});
@@ -69,9 +75,9 @@ globalThis.fetch=async(input,init={})=>{
     const text = writes[1].body.body;
     assert.equal(text.includes('PRIVATE_MUTATION_CANARY'), false); assert.equal(text.includes('owner/private-target'), false);
     const envelope = JSON.parse(text.match(/\n```json\n([\s\S]*)\n```$/)[1]);
-    if (['api-error', 'deletion', 'cross-target', 'conflict'].includes(mode)) {
+    if (['api-error', 'deletion', 'cross-target', 'conflict', 'forged-workflow'].includes(mode)) {
       assert.equal(child.status, 1); assert.match(text, /status=FAILED/);
-      const codes = { 'api-error': 'GITHUB_API_ERROR', deletion: 'RECEIPT_HISTORY_MOVED', 'cross-target': 'REQUEST_TARGET_MISMATCH', conflict: 'REQUEST_ID_AMBIGUOUS' };
+      const codes = { 'api-error': 'GITHUB_API_ERROR', deletion: 'RECEIPT_HISTORY_MOVED', 'cross-target': 'REQUEST_TARGET_MISMATCH', conflict: 'REQUEST_ID_AMBIGUOUS', 'forged-workflow': 'REQUEST_AUTHORITY_UNVERIFIED' };
       assert.ok(text.includes(codes[mode]), text); assert.equal(envelope.result, undefined);
     } else {
       assert.equal(child.status, 0, child.stderr); assert.match(text, /status=SUCCESS/); assert.equal(envelope.result.found, mode !== 'missing');

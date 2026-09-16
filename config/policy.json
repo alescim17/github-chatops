@@ -2,6 +2,7 @@
   "version": 1,
   "control_repository": "alescim17/github-chatops",
   "control_issues": [
+    39,
     3
   ],
   "authorized_actors": [

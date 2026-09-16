@@ -82,8 +82,17 @@ export async function lookupRequest(policy, command, context) {
     && policy.allowed_repositories.includes(context.targetAlias)
     && /^target\/[A-Za-z0-9._-]{1,100}$/.test(context.targetAlias),
   'READ_REQUEST_CONTEXT_INVALID', 'Request recovery requires an allowlisted permanent control-bus context');
+  const currentControlIssue = Number(context.controlIssue);
+  // The first configured issue is the active bus. Requests arriving there may
+  // recover receipts from every allowlisted historical bus and must detect
+  // cross-bus ambiguity. A request executed from a historical bus stays scoped
+  // to that history, preserving the old transport contract and avoiding calls
+  // to a successor bus that did not exist when that command was accepted.
+  const scanIssues = currentControlIssue === policy.control_issues[0]
+    ? policy.control_issues
+    : [currentControlIssue];
   let selected = null, selectedComment = null, selectedControlIssue = null, selectedIssueUrl = null;
-  for (const controlIssue of policy.control_issues) {
+  for (const controlIssue of scanIssues) {
     invariant(Number.isSafeInteger(controlIssue) && controlIssue > 0,
       'READ_REQUEST_CONTEXT_INVALID', 'Control-bus policy contains an invalid issue');
     const issueUrl = `https://api.github.com/repos/${context.controlRepository}/issues/${controlIssue}`;
@@ -107,7 +116,7 @@ export async function lookupRequest(policy, command, context) {
   // Anchor the authority class to the complete-history view, never an optional
   // exact-endpoint projection or a substituted generic Actions identity.
   const appAuthority = isRepoRelayReceipt(selectedComment);
-  // STARTED is updated in place. Read the exact comment AFTER every allowlisted
+  // STARTED is updated in place. Read the exact comment AFTER every applicable
   // bus has been scanned. A deleted/unreadable receipt is an error, never
   // NOT_FOUND or inferred success.
   const currentComment = await githubRequest(context.controlToken, 'GET',

@@ -99,6 +99,17 @@ test('read.request invoked from successor #39 still recovers historical #3 recei
   assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
 });
 
+test('read.request invoked from historical #3 stays scoped to historical #3', async t => {
+  const views = r2Views();
+  const calls = install(t, { issue39: [], issue3: [views.collection], exact: views.exact });
+  const result = await lookupRequest(policy, command, { ...baseContext, controlIssue: 3 });
+  assert.equal(result.found, true);
+  assert.equal(result.status, 'SUCCESS');
+  assert.equal(result.receipt_comment_id, receiptId);
+  assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
+  assert.equal(calls.includes(`GET /repos/${control}/issues/39/comments`), false);
+});
+
 test('the same authoritative request identity on two buses fails closed', async t => {
   const views = r2Views();
   const successor = onIssue(views.collection, 39);

@@ -18,7 +18,7 @@ The normative [operator protocol](docs/OPERATOR_PROTOCOL.md) defines the exact p
 
 `read.capabilities` is public, metadata-only installed protocol discovery: versions, the complete public/private read/mutation action matrix derived from executable dispatcher registration, transport actions, query kinds, explicit limits and fallback/read-after-write support. Capability discovery is not mutation authorization.
 
-`read.request` (read plane 1.1.0, command schema v1) recovers the current authoritative public receipt for one exact `lookup_request_id` and expected target alias. It scans the entire permanent command-bus history, including beyond 1000 comments, rejects collisions or moving history, and re-reads the exact matched comment. Its bounded public result contains only identity/status/timestamps and optional safe read-result integrity metadata, never private query or mutation payloads. It never executes the original request. Lost tool output is not evidence of failure; use a new lookup request ID, then independently verify consequential target state. Unprovable legacy authority fails explicitly rather than returning invented state or NOT_FOUND; see the documented legacy proof limitations.
+`read.request` (read plane 1.1.0, command schema v1) recovers the current authoritative public receipt for one exact `lookup_request_id` and expected target alias. When invoked from the active command bus it scans that bus plus all allowlisted historical bus histories, including beyond 1000 comments, and rejects cross-bus collisions or moving history; when invoked from a historical bus it stays scoped to that historical issue. It re-reads the exact matched comment before returning. Its bounded public result contains only identity/status/timestamps and optional safe read-result integrity metadata, never private query or mutation payloads. It never executes the original request. Lost tool output is not evidence of failure; use a new lookup request ID, then independently verify consequential target state. Unprovable legacy authority fails explicitly rather than returning invented state or NOT_FOUND; see the documented legacy proof limitations.
 
 `read.freeze` is public, metadata-only authority: default/requested branch SHA/tree, PR head/base/lifecycle, Issue state, optional reviews and exact-SHA latest checks/workflow-event identities after a complete bounded paginated history scan. The SUCCESS receipt contains the actual sanitized result, timestamps, stable=true and a canonical result_sha256. If authority moves during collection it fails READ_FREEZE_MOVED. It is a fresh GitHub-backed observation, not cached state or a reused mutation receipt.
 
@@ -38,7 +38,7 @@ Direct public actions:
 
 Only public typed reads can put validated metadata into public receipts. Existing mutation receipts remain minimal. Public read results exclude mapped private repository names, PR/Issue titles and bodies, comments/review text, file paths/source, logs/artifacts, credentials, emails and tokens. Unsafe free-form check/workflow labels are redacted with identity digests; exact sensitive labels require a private query.
 
-For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to permanent public Issue #3:
+For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to active permanent public Issue #39:
 
 ```text
 /reporelay
@@ -47,7 +47,7 @@ For private queries or content-bearing mutations, put `/reporelay-private { ... 
 
 The inner request_id and target alias must match. The runner verifies comment author and receipt destination. Private query results go only to that private conversation. Public query SUCCESS contains only completed, private_receipt, result_sha256, result_bytes and query_kind. A failed private read delivery is FAILED, never a successful but unavailable read result.
 
-Keep Issue #3 permanently OPEN and UNLOCKED. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
+Keep active Issue #39 permanently OPEN and UNLOCKED. Issue #3 is historical receipt authority and should remain available for recovery, but do not submit new commands there. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
 
 ## Mutation surface and fences
 
@@ -68,7 +68,7 @@ Routine cleanup uses branch.delete_merged with a merged PR number and expected_h
 
 `branch.merge.fenced` is PRIVATE ONLY through `relay.private`; it is not in PUBLIC_ACTIONS. It synchronizes two exact, existing, divergent branch histories, not arbitrary merge automation or PR approval. The target must be a non-default branch in the resolved canonical repository.
 
-Stage this strict typed command in the target conversation, then send only its matching request_id, target alias and source_comment_id in a relay.private envelope to Issue #3:
+Stage this strict typed command in the target conversation, then send only its matching request_id, target alias and source_comment_id in a relay.private envelope to active Issue #39:
 
 ```text
 /reporelay-private
@@ -87,7 +87,7 @@ Audit push branch filters at both starting histories before use: temporary branc
 
 Typed/versioned commands; actor and target alias allowlists; secret alias mapping; canonical intent hashing and duplicate suppression; no arbitrary shell; no generic HTTP/API proxy or caller GraphQL; public/private payload separation; expected-head/base/parent/blob fences; current exact-head checks; mergeability/review/unresolved-thread gates; last-moment PR refetch; default-branch writes and force updates forbidden; pinned privileged Actions dependencies.
 
-Read handlers use only GETs and a fixed GraphQL QUERY with validated selectors, never target PUT/PATCH/DELETE or GraphQL mutation. Request recovery of App-authenticated receipts uses only permanent-bus GETs. Legacy generic-Actions receipts additionally require immutable authorized source intent and an exact RepoRelay execution-log record on installed-main ancestry, read internally with the existing installation token. Private source bodies, logs and results are never exposed. New public receipts are written by the already-installed RepoRelay App, not the generic GitHub Actions identity; no permissions change. Private command/receipt comments are separate transport operations. No App permission expansion is required.
+Read handlers use only GETs and a fixed GraphQL QUERY with validated selectors, never target PUT/PATCH/DELETE or GraphQL mutation. Request recovery of App-authenticated receipts uses only allowlisted command-bus GETs. Legacy generic-Actions receipts additionally require immutable authorized source intent and an exact RepoRelay execution-log record on installed-main ancestry, read internally with the existing installation token. Private source bodies, logs and results are never exposed. New public receipts are written by the already-installed RepoRelay App, not the generic GitHub Actions identity; no permissions change. Private command/receipt comments are separate transport operations. No App permission expansion is required.
 
 ## Setup and validation
 

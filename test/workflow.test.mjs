@@ -18,10 +18,10 @@ test('privileged workflow pins executable actions to full commit SHAs', async ()
   }
 });
 
-test('privileged workflow is gated to owner command-bus Issue #3', async () => {
+test('privileged workflow is gated to owner command-bus Issues #39 and #3', async () => {
   const workflow = await fs.readFile(workflowUrl, 'utf8');
   assert.match(workflow, /github\.event\.comment\.user\.login == 'alescim17'/);
-  assert.match(workflow, /github\.event\.issue\.number == 3/);
+  assert.match(workflow, /\(github\.event\.issue\.number == 39 \|\| github\.event\.issue\.number == 3\)/);
   assert.match(workflow, /startsWith\(github\.event\.comment\.body, '\/reporelay'\)/);
 });
 
@@ -43,7 +43,7 @@ test('GitHub App token explicitly requests merge-evidence and workflow-write per
 
 test('public policy exposes target aliases only', async () => {
   const policy = JSON.parse(await fs.readFile(policyUrl, 'utf8'));
-  assert.deepEqual(policy.control_issues, [3]);
+  assert.deepEqual(policy.control_issues, [39, 3]);
   assert.ok(policy.allowed_repositories.length > 0);
   for (const target of policy.allowed_repositories) {
     assert.match(target, /^target\/[A-Za-z0-9._-]+$/);

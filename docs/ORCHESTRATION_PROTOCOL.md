@@ -149,6 +149,12 @@ This dated product snapshot is routing guidance, not protocol authority.
 Fresh-verify OpenAI plan limits before quota-sensitive decisions and preserve the
 capacity-separation principle if plan details change.
 
+When routing **GPT-6 Pro in standard Chat**, use `MODEL=GPT-6 Pro` and
+`REASONING=MODEL_DEFAULT` unless the current UI explicitly exposes a separate
+reasoning control for that Pro model. Do not map GPT-5.6 Sol `Extra High` onto
+GPT-6 Pro: Pro is a model selection, while Medium/High/Extra High are Sol
+reasoning levels.
+
 ## Prompt routing
 
 Every prompt handed to another execution session begins:
@@ -157,7 +163,7 @@ Every prompt handed to another execution session begins:
 PROMPT_ROUTE
 RECIPIENT=<ChatGPT Web | Codex Web | Codex Local/Desktop | explicit other tool>
 MODEL=<model>
-REASONING=<Low | Medium | High | Extra High | available equivalent>
+REASONING=<MODEL_DEFAULT | Low | Medium | High | Extra High | available equivalent>
 CHAT=<NEW | EXISTING>
 EXECUTION=<web/GitHub | cloud repository | local repository/runtime>
 WHY=<one short sentence>

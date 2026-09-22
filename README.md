@@ -2,6 +2,10 @@
 
 RepoRelay is a repository-agnostic GitHub ChatOps control plane for deterministic, policy-gated mutations and typed authoritative fallback reads. Typed comments execute through GitHub Actions with a short-lived GitHub App installation token. The public control repository can operate allowlisted private targets without installing a workflow in each target.
 
+## Project orchestration
+
+Repository development uses [the stateless orchestration contract](docs/ORCHESTRATION_PROTOCOL.md) and permanent Project Control Issue #42. That project-state cache is separate from active command bus Issue #39 and historical receipt bus Issue #3; never use #42 to transport RepoRelay commands.
+
 ## Native-first authority
 
 For ChatGPT Web / Codex Web, use **native GitHub reads first**, then exact native GitHub REST/resource reads when a wrapper is insufficient. Use RepoRelay read fallback only when native output is operationally unusable: omitted/Skipped/empty results, unconsultable resources, truncated authority, or output that cannot be carried into the next fenced operation. Only if native and RepoRelay reads both fail may an orchestrator declare READ_PLANE_BLOCKED.

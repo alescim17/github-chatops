@@ -130,6 +130,25 @@ independent review uses Sol Extra High.
 Use higher reasoning only after confirming the blocker is reasoning rather than
 missing files, permissions, evidence or execution environment.
 
+## Pro $100 capacity routing snapshot
+
+As of 2026-09-22, when the owner is on ChatGPT Pro $100:
+
+- GPT-6 Pro in Chat is powered by GPT-6 Astra and shares **50 messages/week**
+  with GPT-5.6 Sol Pro.
+- GPT-6 Astra in Work/Codex consumes the separate included Work/Codex allowance;
+  Astra use in Codex Web or Codex Local/Desktop does not spend the 50 Chat Pro
+  messages.
+- Spend Chat Pro capacity on independent security/protocol review, hard
+  architecture and difficult root-cause analysis; keep ordinary transport/lifecycle
+  work on Sol High.
+- Do not hoard expiring weekly premium Chat capacity when high-value review is
+  waiting.
+
+This dated product snapshot is routing guidance, not protocol authority.
+Fresh-verify OpenAI plan limits before quota-sensitive decisions and preserve the
+capacity-separation principle if plan details change.
+
 ## Prompt routing
 
 Every prompt handed to another execution session begins:

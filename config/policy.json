@@ -12,6 +12,7 @@
     "target/reporelay",
     "target/aether",
     "target/streamforge",
+    "target/auto",
     "target/homeassistant"
   ],
   "merge_methods": [

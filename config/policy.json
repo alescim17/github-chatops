@@ -13,6 +13,7 @@
     "target/aether",
     "target/streamforge",
     "target/auto",
+    "target/auto-bench",
     "target/homeassistant"
   ],
   "merge_methods": [

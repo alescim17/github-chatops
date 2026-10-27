@@ -4,6 +4,8 @@ This is the normative contract for ChatGPT Web / Codex Web orchestration of conf
 
 Local trusted development with full `git`/`gh` access is outside this Web routing contract unless a task explicitly requires RepoRelay.
 
+Active command transport is Issue #44; Issues #39 and #3 are saturated historical receipt sources. New commands must not be sent to saturated buses; rollover does not broaden owner, alias, check or merge permissions.
+
 ## Required priority model
 
 READ PRIORITY:
@@ -42,7 +44,7 @@ Receipt authority is RepoRelay-specific: new public receipts use the already-ins
 
 `found=false` means no matching authoritative receipt was observed in a stable complete scan of the bus history applicable to that invocation. It does NOT prove that an accepted command has not started, that a receipt was never deleted, or that the target was not modified. Inspect the source comment and workflow evidence and reconcile actual target state before any retry. API/network errors, invalid pagination, history movement, malformed matching receipts, target mismatch and request identity ambiguity are typed failures, never absence. See [READ_PLANE.md](READ_PLANE.md) for the exact schema and failure codes.
 
-Until the rollover-capable read.request is installed, recover by exact native reads of the recorded source comment, active Issue #39 comments, historical Issue #3 comments when relevant, exact receipt comment IDs, and associated workflow run when needed. Search exact request_id; do not guess that an empty wrapper or one incomplete page proves absence. Do not scan source code to decide whether a lost command executed. Native recovery and the new typed lookup both preserve the normal requirement for independent post-mutation target verification.
+Until the rollover-capable read.request is installed, recover by exact native reads of the recorded source comment, active Issue #44 comments, historical Issues #39 and #3 comments when relevant, exact receipt comment IDs, and associated workflow run when needed. Search exact request_id; do not guess that an empty wrapper or one incomplete page proves absence. Do not scan source code to decide whether a lost command executed. Native recovery and the new typed lookup both preserve the normal requirement for independent post-mutation target verification.
 
 ## Native-first selection
 
@@ -78,17 +80,17 @@ Before declaring RepoRelay write unavailable in a ChatGPT web/web-orchestrator s
 4. Classify the failure precisely:
    - `WRITE_TOOL_NOT_EXPOSED`: no suitable comment-creation action exists in the current session tool surface;
    - `WRITE_PERMISSION_DENIED`: the comment action exists but GitHub rejects an actual invocation;
-   - `REPORELAY_REJECTED`: staging succeeded, the command reached active permanent Issue #39, and RepoRelay returned `FAILED`.
+   - `REPORELAY_REJECTED`: staging succeeded, the command reached active permanent Issue #44, and RepoRelay returned `FAILED`.
 
-A missing session tool is not a RepoRelay outage and does not invalidate `REPORELAY_GLOBAL_READY=YES`. Do not search for a separate RepoRelay plugin/tool: the normal RepoRelay write transport is GitHub comments. When comment creation is available, stage `/reporelay-private` on the target Issue/PR and post the matching `/reporelay` envelope to active Issue #39. Historical Issue #3 remains available for receipt recovery but must not receive new commands after rollover. If a submitted request's immediate payload is lost, recover the original `request_id` with `read.request` and fresh native GitHub state reads; never blindly replay the original mutation.
+A missing session tool is not a RepoRelay outage and does not invalidate `REPORELAY_GLOBAL_READY=YES`. Do not search for a separate RepoRelay plugin/tool: the normal RepoRelay write transport is GitHub comments. When comment creation is available, stage `/reporelay-private` on the target Issue/PR and post the matching `/reporelay` envelope to active Issue #44. Historical Issues #39 and #3 remain available for receipt recovery but must not receive new commands after rollover. If a submitted request's immediate payload is lost, recover the original `request_id` with `read.request` and fresh native GitHub state reads; never blindly replay the original mutation.
 
-This rule applies to every configured target. This repository's own alias is `target/reporelay`. Active Issue #39 MUST remain OPEN and UNLOCKED. Historical Issue #3 should remain OPEN and readable as receipt authority.
+This rule applies to every configured target. This repository's own alias is `target/reporelay`. Active Issue #44 MUST remain OPEN and UNLOCKED. Historical Issues #39 and #3 should remain OPEN and readable as receipt authority.
 
 ## Writes and private transport
 
 Native read degradation does NOT authorize native writes to configured targets. RepoRelay remains required for those mutations unless the owner explicitly authorizes a narrowly scoped recovery exception. A one-time RepoRelay self-upgrade exception must not be generalized to StreamForge, Aether, Home Assistant or other targets.
 
-Use direct public commands only for allowlisted metadata-only actions. Use relay.private for content-bearing commands. Stage the complete `/reporelay-private` command in an Issue/PR conversation on the private target; post only its target alias, matching request_id and source_comment_id on the active public command bus. Staging and receipt comments are transport operations, not product changes. Never publish private repository mappings, bodies, source, paths, logs, tokens or credentials on active Issue #39 or historical Issue #3.
+Use direct public commands only for allowlisted metadata-only actions. Use relay.private for content-bearing commands. Stage the complete `/reporelay-private` command in an Issue/PR conversation on the private target; post only its target alias, matching request_id and source_comment_id on the active public command bus. Staging and receipt comments are transport operations, not product changes. Never publish private repository mappings, bodies, source, paths, logs, tokens or credentials on active Issue #44 or historical Issue #3.
 
 The runner authenticates the private comment author, checks envelope binding and same-target receipt destination. The read.query handler separately requires server-owned private-relay context and a private target repository. GET and one fixed GraphQL QUERY document are the only read-handler requests; no caller REST path, URL, HTTP method, GraphQL or generic proxy is accepted. Receipt writes are separate transport operations.
 
@@ -138,12 +140,12 @@ Delete the internal temporary ref and verify GET returns 404 before any real tar
 
 After cleanup, reread the target and head_ref independently. Refuse movement with BRANCH_MERGE_TARGET_MOVED or BRANCH_MERGE_HEAD_MOVED. Then update the target to the verified merge SHA with force=false and verify it again. These are optimistic fences, not a cross-ref transaction or an atomic compare-and-swap guarantee. Concurrent movement after the final observations remains possible; non-force protects history, and independent post-write authority is mandatory. Never roll back or force a ref in response to a race.
 
-Follow POST-WRITE PRIORITY to inspect the actual commit parents/tree, target ref and current-main ancestry. Mutation SUCCESS alone is insufficient. The private result supplies branch, from, head_ref, head_sha, merge_sha, tree_sha and parents; the public mutation receipt exposes no source or detailed target data. If legitimately authorized main movement requires another sync, obtain new fences and a new request_id; never silently merge a newer ref or weaken an old fence. Keep active command-bus Issue #39 OPEN and UNLOCKED and preserve historical Issue #3 for recovery.
+Follow POST-WRITE PRIORITY to inspect the actual commit parents/tree, target ref and current-main ancestry. Mutation SUCCESS alone is insufficient. The private result supplies branch, from, head_ref, head_sha, merge_sha, tree_sha and parents; the public mutation receipt exposes no source or detailed target data. If legitimately authorized main movement requires another sync, obtain new fences and a new request_id; never silently merge a newer ref or weaken an old fence. Keep active command-bus Issue #44 OPEN and UNLOCKED and preserve historical Issues #39 and #3 for recovery.
 
 ## Final-state reporting
 
 Derive the final state from the latest successful independent observation selected through the required priorities. Preserve target alias, operation, request ID, pre-state SHA/tree, fence values, terminal receipt, post-state SHA/tree, observation times and result digest. Earlier transient failures must not override later verified state.
 
-For ordered work, proceed only after the preceding item is verified complete and any required cleanup is independently verified. Keep active permanent command-bus Issue #39 OPEN and UNLOCKED; preserve historical Issue #3 as readable receipt authority and do not route new commands to it.
+For ordered work, proceed only after the preceding item is verified complete and any required cleanup is independently verified. Keep active permanent command-bus Issue #44 OPEN and UNLOCKED; preserve historical Issue #3 as readable receipt authority and do not route new commands to it.
 
 See [READ_PLANE.md](READ_PLANE.md) for strict schemas, bounds, pagination, public/private result policy and examples.

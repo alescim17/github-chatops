@@ -30,7 +30,7 @@ All authority is collected twice. A difference in default/requested branches, PR
 
 ## Public request recovery — read.request
 
-Submit exactly these five fields to permanent Issue #3:
+Submit exactly these five fields to active permanent Issue #44:
 
 ```text
 /reporelay
@@ -94,7 +94,7 @@ A stable found=false is not proof of non-execution: a source may be queued, a re
 
 ## Private query
 
-Stage this only in the private target conversation, then submit a matching relay.private envelope to Issue #3:
+Stage this only in the private target conversation, then submit a matching relay.private envelope to active Issue #44:
 
 ```text
 /reporelay-private

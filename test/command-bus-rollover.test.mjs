@@ -10,7 +10,7 @@ const policy = await loadPolicy();
 const command = { lookup_request_id: requestId };
 const baseContext = {
   controlRepository: control,
-  controlIssue: 39,
+  controlIssue: 44,
   controlToken: 'rollover-control-token',
   targetAlias: alias,
 };
@@ -22,7 +22,7 @@ function onIssue(comment, issue) {
   return copy;
 }
 
-function install(t, { issue39 = [], issue3 = [], exact }) {
+function install(t, { issue44 = [], issue39 = [], issue3 = [], exact }) {
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (input, init = {}) => {
     const url = new URL(input);
@@ -34,7 +34,7 @@ function install(t, { issue39 = [], issue3 = [], exact }) {
     }
     assert.equal(init.method, 'GET');
     assert.equal(init.headers.Authorization, 'Bearer rollover-control-token');
-    for (const [issue, items] of [[39, issue39], [3, issue3]]) {
+    for (const [issue, items] of [[44, issue44], [39, issue39], [3, issue3]]) {
       if (url.pathname === `/repos/${control}/issues/${issue}/comments`) {
         assert.equal(url.searchParams.get('per_page'), '100');
         const page = Number(url.searchParams.get('page'));
@@ -49,9 +49,9 @@ function install(t, { issue39 = [], issue3 = [], exact }) {
   return calls;
 }
 
-test('policy makes Issue #39 active while preserving historical Issue #3', () => {
-  assert.deepEqual(policy.control_issues, [39, 3]);
-  for (const issue of [39, 3]) {
+test('policy makes Issue #44 active while preserving historical Issues #39 and #3', () => {
+  assert.deepEqual(policy.control_issues, [44, 39, 3]);
+  for (const issue of [44, 39, 3]) {
     assert.doesNotThrow(() => authorize({
       policy,
       actor: 'alescim17',
@@ -67,28 +67,36 @@ test('policy makes Issue #39 active while preserving historical Issue #3', () =>
     controlIssue: 40,
     command: { repository: alias },
   }), { code: 'CONTROL_ISSUE_FORBIDDEN' });
+  assert.throws(() => authorize({
+    policy,
+    actor: 'mallory',
+    controlRepository: control,
+    controlIssue: 44,
+    command: { repository: alias },
+  }), { code: 'ACTOR_FORBIDDEN' });
 });
 
-test('workflow trigger allowlists only historical #3 and successor #39', () => {
+test('workflow trigger allowlists only #44, #39 and #3', () => {
   const workflow = fs.readFileSync(new URL('../.github/workflows/reporelay.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /\(github\.event\.issue\.number == 39 \|\| github\.event\.issue\.number == 3\)/);
+  assert.match(workflow, /\(github\.event\.issue\.number == 44 \|\| github\.event\.issue\.number == 39 \|\| github\.event\.issue\.number == 3\)/);
   assert.equal(workflow.includes('github.event.issue.number == 40'), false);
 });
 
-test('read.request invoked from successor #39 recovers a successor receipt', async t => {
+test('read.request invoked from successor #44 recovers a successor receipt', async t => {
   const views = r2Views();
-  const collection = onIssue(views.collection, 39);
-  const exact = onIssue(views.exact, 39);
-  const calls = install(t, { issue39: [collection], issue3: [], exact });
+  const collection = onIssue(views.collection, 44);
+  const exact = onIssue(views.exact, 44);
+  const calls = install(t, { issue44: [collection], issue39: [], issue3: [], exact });
   const result = await lookupRequest(policy, command, baseContext);
   assert.equal(result.found, true);
   assert.equal(result.status, 'SUCCESS');
   assert.equal(result.receipt_comment_id, receiptId);
+  assert.ok(calls.includes(`GET /repos/${control}/issues/44/comments`));
   assert.ok(calls.includes(`GET /repos/${control}/issues/39/comments`));
   assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
 });
 
-test('read.request invoked from successor #39 still recovers historical #3 receipts', async t => {
+test('read.request invoked from successor #44 still recovers historical #3 receipts', async t => {
   const views = r2Views();
   const calls = install(t, { issue39: [], issue3: [views.collection], exact: views.exact });
   const result = await lookupRequest(policy, command, baseContext);
@@ -97,6 +105,44 @@ test('read.request invoked from successor #39 still recovers historical #3 recei
   assert.equal(result.receipt_comment_id, receiptId);
   assert.ok(calls.includes(`GET /repos/${control}/issues/39/comments`));
   assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
+});
+
+test('read.request on active #44 recovers historical #39 receipts', async t => {
+  const views = r2Views();
+  const collection = onIssue(views.collection, 39);
+  const exact = onIssue(views.exact, 39);
+  const calls = install(t, { issue39: [collection], exact });
+  const result = await lookupRequest(policy, command, baseContext);
+  assert.equal(result.found, true);
+  assert.equal(result.status, 'SUCCESS');
+  assert.equal(result.receipt_comment_id, receiptId);
+  for (const issue of [44, 39, 3]) {
+    assert.ok(calls.includes(`GET /repos/${control}/issues/${issue}/comments`));
+  }
+});
+
+test('read.request on historical #39 stays scoped to #39 only', async t => {
+  const views = r2Views();
+  const collection = onIssue(views.collection, 39);
+  const exact = onIssue(views.exact, 39);
+  const calls = install(t, { issue39: [collection], exact });
+  const result = await lookupRequest(policy, command, { ...baseContext, controlIssue: 39 });
+  assert.equal(result.found, true);
+  assert.equal(result.status, 'SUCCESS');
+  assert.ok(calls.includes(`GET /repos/${control}/issues/39/comments`));
+  assert.equal(calls.includes(`GET /repos/${control}/issues/44/comments`), false);
+  assert.equal(calls.includes(`GET /repos/${control}/issues/3/comments`), false);
+});
+
+test('active #44 refuses duplicate request identity across #44 and historical #39', async t => {
+  const views = r2Views();
+  const active = onIssue(views.collection, 44);
+  const old = onIssue(views.collection, 39);
+  install(t, { issue44: [active], issue39: [old] });
+  await assert.rejects(
+    lookupRequest(policy, command, baseContext),
+    { code: 'REQUEST_ID_AMBIGUOUS' },
+  );
 });
 
 test('read.request invoked from historical #3 stays scoped to historical #3', async t => {
@@ -107,10 +153,11 @@ test('read.request invoked from historical #3 stays scoped to historical #3', as
   assert.equal(result.status, 'SUCCESS');
   assert.equal(result.receipt_comment_id, receiptId);
   assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
+  assert.equal(calls.includes(`GET /repos/${control}/issues/44/comments`), false);
   assert.equal(calls.includes(`GET /repos/${control}/issues/39/comments`), false);
 });
 
-test('the same authoritative request identity on two buses fails closed', async t => {
+test('the same authoritative request identity on historical #39 and #3 fails closed', async t => {
   const views = r2Views();
   const successor = onIssue(views.collection, 39);
   install(t, { issue39: [successor], issue3: [views.collection], exact: null });

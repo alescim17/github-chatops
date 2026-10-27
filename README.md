@@ -30,6 +30,8 @@ See [typed read schemas and examples](docs/READ_PLANE.md).
 
 ## Public/private channels
 
+Bus #44 succeeds saturated #39 (and older #3). The ordered policy retains both retired bus histories for authenticated receipt recovery; **new** commands go only to active #44.
+
 Direct public actions:
 
 - read.capabilities, read.freeze, read.request;
@@ -38,7 +40,7 @@ Direct public actions:
 
 Only public typed reads can put validated metadata into public receipts. Existing mutation receipts remain minimal. Public read results exclude mapped private repository names, PR/Issue titles and bodies, comments/review text, file paths/source, logs/artifacts, credentials, emails and tokens. Unsafe free-form check/workflow labels are redacted with identity digests; exact sensitive labels require a private query.
 
-For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to active permanent public Issue #39:
+For private queries or content-bearing mutations, put `/reporelay-private { ... }` in an Issue/PR conversation on the private target, then send only this envelope to active permanent public Issue #44:
 
 ```text
 /reporelay
@@ -47,7 +49,7 @@ For private queries or content-bearing mutations, put `/reporelay-private { ... 
 
 The inner request_id and target alias must match. The runner verifies comment author and receipt destination. Private query results go only to that private conversation. Public query SUCCESS contains only completed, private_receipt, result_sha256, result_bytes and query_kind. A failed private read delivery is FAILED, never a successful but unavailable read result.
 
-Keep active Issue #39 permanently OPEN and UNLOCKED. Issue #3 is historical receipt authority and should remain available for recovery, but do not submit new commands there. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
+Keep active Issue #44 permanently OPEN and UNLOCKED. Issues #39 and #3 are historical receipt sources and must remain available for recovery, but do not submit new commands there. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
 
 ## Mutation surface and fences
 
@@ -68,7 +70,7 @@ Routine cleanup uses branch.delete_merged with a merged PR number and expected_h
 
 `branch.merge.fenced` is PRIVATE ONLY through `relay.private`; it is not in PUBLIC_ACTIONS. It synchronizes two exact, existing, divergent branch histories, not arbitrary merge automation or PR approval. The target must be a non-default branch in the resolved canonical repository.
 
-Stage this strict typed command in the target conversation, then send only its matching request_id, target alias and source_comment_id in a relay.private envelope to active Issue #39:
+Stage this strict typed command in the target conversation, then send only its matching request_id, target alias and source_comment_id in a relay.private envelope to active Issue #44:
 
 ```text
 /reporelay-private

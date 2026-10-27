@@ -49,7 +49,7 @@ For private queries or content-bearing mutations, put `/reporelay-private { ... 
 
 The inner request_id and target alias must match. The runner verifies comment author and receipt destination. Private query results go only to that private conversation. Public query SUCCESS contains only completed, private_receipt, result_sha256, result_bytes and query_kind. A failed private read delivery is FAILED, never a successful but unavailable read result.
 
-Keep active Issue #44 permanently OPEN and UNLOCKED. Issues #39 and #3 are historical receipt authority and must remain available for recovery, but do not submit new commands there. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
+Keep active Issue #44 permanently OPEN and UNLOCKED. Issues #39 and #3 are historical receipt sources and must remain available for recovery, but do not submit new commands there. Private repository mappings belong only in REPORELAY_TARGETS_JSON, never in public commands or policy.
 
 ## Mutation surface and fences
 

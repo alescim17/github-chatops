@@ -90,7 +90,7 @@ This rule applies to every configured target. This repository's own alias is `ta
 
 Native read degradation does NOT authorize native writes to configured targets. RepoRelay remains required for those mutations unless the owner explicitly authorizes a narrowly scoped recovery exception. A one-time RepoRelay self-upgrade exception must not be generalized to StreamForge, Aether, Home Assistant or other targets.
 
-Use direct public commands only for allowlisted metadata-only actions. Use relay.private for content-bearing commands. Stage the complete `/reporelay-private` command in an Issue/PR conversation on the private target; post only its target alias, matching request_id and source_comment_id on the active public command bus. Staging and receipt comments are transport operations, not product changes. Never publish private repository mappings, bodies, source, paths, logs, tokens or credentials on active Issue #44 or historical Issue #3.
+Use direct public commands only for allowlisted metadata-only actions. Use relay.private for content-bearing commands. Stage the complete `/reporelay-private` command in an Issue/PR conversation on the private target; post only its target alias, matching request_id and source_comment_id on the active public command bus. Staging and receipt comments are transport operations, not product changes. Never publish private repository mappings, bodies, source, paths, logs, tokens or credentials on active Issue #44 or historical Issues #39 and #3.
 
 The runner authenticates the private comment author, checks envelope binding and same-target receipt destination. The read.query handler separately requires server-owned private-relay context and a private target repository. GET and one fixed GraphQL QUERY document are the only read-handler requests; no caller REST path, URL, HTTP method, GraphQL or generic proxy is accepted. Receipt writes are separate transport operations.
 
@@ -146,6 +146,6 @@ Follow POST-WRITE PRIORITY to inspect the actual commit parents/tree, target ref
 
 Derive the final state from the latest successful independent observation selected through the required priorities. Preserve target alias, operation, request ID, pre-state SHA/tree, fence values, terminal receipt, post-state SHA/tree, observation times and result digest. Earlier transient failures must not override later verified state.
 
-For ordered work, proceed only after the preceding item is verified complete and any required cleanup is independently verified. Keep active permanent command-bus Issue #44 OPEN and UNLOCKED; preserve historical Issue #3 as readable receipt authority and do not route new commands to it.
+For ordered work, proceed only after the preceding item is verified complete and any required cleanup is independently verified. Keep active permanent command-bus Issue #44 OPEN and UNLOCKED; preserve historical Issues #39 and #3 as readable receipt authority and do not route new commands to it.
 
 See [READ_PLANE.md](READ_PLANE.md) for strict schemas, bounds, pagination, public/private result policy and examples.

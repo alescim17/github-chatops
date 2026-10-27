@@ -67,6 +67,13 @@ test('policy makes Issue #44 active while preserving historical Issues #39 and #
     controlIssue: 40,
     command: { repository: alias },
   }), { code: 'CONTROL_ISSUE_FORBIDDEN' });
+  assert.throws(() => authorize({
+    policy,
+    actor: 'mallory',
+    controlRepository: control,
+    controlIssue: 44,
+    command: { repository: alias },
+  }), { code: 'ACTOR_FORBIDDEN' });
 });
 
 test('workflow trigger allowlists only #44, #39 and #3', () => {
@@ -99,7 +106,6 @@ test('read.request invoked from successor #44 still recovers historical #3 recei
   assert.ok(calls.includes(`GET /repos/${control}/issues/39/comments`));
   assert.ok(calls.includes(`GET /repos/${control}/issues/3/comments`));
 });
-
 
 test('read.request on active #44 recovers historical #39 receipts', async t => {
   const views = r2Views();

@@ -13,6 +13,7 @@
     "target/reporelay",
     "target/aether",
     "target/streamforge",
+    "target/smarther",
     "target/auto",
     "target/auto-bench",
     "target/homeassistant"
